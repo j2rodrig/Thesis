@@ -1,0 +1,12 @@
+The simple TMT lattice consists of the following types:
+
+\begin{center}
+	unannotated $\rightarrow$ mutable $\rightarrow$ polyread $\rightarrow$ readonly $\rightarrow$ errortype
+\end{center}
+
+Generally, subtype checks do not distinguish between unannotated and mutable. However, the distinction between unannotated
+and mutable is important for determining whether or not a piece of code has been intentionally annotated by
+the programmer. For example, unannotated type expressions take on a default TMT derived from the components of that
+expression (see Type Expressions below).
+
+Polyread types have symbols of origin and TMT adaptations. 

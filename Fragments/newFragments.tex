@@ -1,0 +1,713 @@
+\section{DOTMod Syntax}
+
+DOTMod is a modification of the DOT calculus.
+Additions to DOT syntax are shown in boxes.
+These additions include qualifiers for arbitrary types~(\mbox{$T@q$}),
+receiver-type qualifiers for methods~(\mbox{$(@q)...$}),
+and annotations that indicate whether named classes may contain methods
+that mutate outer classes~(\mbox{$(@O)...$}).
+
+The syntactical elements for concrete types have been removed.
+In lieu of concrete types, DOTMod rules form judgements about
+{\em constructible types} (discussed below). Constructible types
+are a subset of concrete types.
+
+\begin{figure}[htbp]
+	\begin{equation*}
+	\begin{array}{ll|ll}
+		x,y,z & \text{Variable} &
+			L::= & \text{Type label} \\
+		l & \text{Value label} &
+			\qquad \boxed{(@O)} L_c & \quad \text{class label} \\
+		m & \text{Method label} &
+			\qquad L_a & \quad \text{abstract type label} \\
+		v::= & \text{Value} &
+			S,T,U,V,W::= & \text{Type} \\
+		\qquad x & \qquad \text{variable} &
+			\qquad p.L & \quad \text{type selection} \\
+		t::= & \text{Term} &
+			\qquad T\ \{ z \Rightarrow \overline{D} \} & \quad \text{type refinement} \\
+		\qquad v & \qquad \text{value} &
+			\qquad T \land T & \quad \text{intersection type} \\
+		\qquad {\bf val}\ x = {\bf new}\ c; t & \qquad \text{new instance} &
+			\qquad T \lor T & \quad \text{union type} \\
+		\qquad t.l & \qquad \text{field selection} & \qquad \top & \quad \text{top type} \\
+		\qquad t.m(t) & \qquad \text{method invocation} &
+			\qquad \bot & \quad \text{bottom type} \\
+		p::= & \text{Path} &
+			\qquad \boxed{T@q} & \quad \text{qualified type} \\
+		\qquad x & \qquad \text{variable} &
+			D::= & \text{Declaration} \\
+			%\cancel{S_c, T_c ::=} & \cancel{\text{Concrete type}} \\
+		\qquad p.l & \qquad \text{selection} &
+			\qquad L:S..U & \quad \text{type declaration} \\
+			%\multicolumn{2}{l}{
+			%\qquad \cancel{p.L_c\ |
+			%	\ T_c\ \{ z \Rightarrow \overline{D} \}\ |
+			%	\ T_c \land T_c\ |
+			%	\ \top}
+			%} \\
+		c::=T\ \{\overline{d}\} & \text{Constructor} &
+			\qquad l:T & \quad \text{value declaration} \\
+		d::= & \text{Initialization} &
+			\qquad \boxed{(@q)}m:S \rightarrow U & \quad \text{method declaration} \\
+		\qquad l=v & \qquad \text{field initialization} &
+			\multicolumn{2}{l}{
+				\fbox{
+					\begin{minipage}{0.43\linewidth}
+						$q,r::= \qquad \qquad \ \text{Type qualifier}$
+						
+						$\ \ \ \ mutable\ |\ roparam\ |\ rothis\ |\ readonly$
+
+					\end{minipage}
+				}
+				} \\
+		\qquad m(x)=t & \qquad \text{method initialization} &
+			\multicolumn{2}{l}{
+				\fbox{
+					\begin{minipage}{0.43\linewidth}
+						$O::= \qquad \qquad \ \ \ \text{Outer mutation qualifier}$
+						
+						$\ \ \ \ ModOuter\ |\ NoModOuter$
+
+					\end{minipage}
+				}
+				} \\
+	%\multicolumn{2}{l|}{
+	%			\fbox{
+	%				\begin{minipage}{0.47\linewidth}
+	%					$B,A::= Q..R \qquad \quad \text{Qualifier Bounds}$
+	%				\end{minipage}
+	%			}
+	%			} &
+		s::=\overline{x \mapsto c} & \text{Store} &
+			\Gamma ::= \overline{x:T} & \text{Environment} \\
+	\end{array}
+	\end{equation*}
+	\caption{DOTMod Syntax}
+	\label{fig-dot-syntax}
+\end{figure}
+
+
+DOTMod notations and rules are the same as in DOT
+unless otherwise noted.
+
+\newpage
+
+%\section{New Rules in DOTMod}
+
+\subsubsection{Qualifier Lattice}
+
+\begin{equation*}\tag{\mbox{Qual-$<:$-1}}\label{equ-}
+\begin{array}{c}
+\midrule
+mutable <: q \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$<:$-2}}\label{equ-}
+\begin{array}{c}
+\midrule
+q <: readonly \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$<:$-3}}\label{equ-}
+\begin{array}{c}
+\midrule
+q <: q \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$\land$}}\label{equ-qual-meet}
+\begin{array}{llll}
+q \land q'  &=& q & \text{if $q <: q'$} \\
+            &=& q' & \text{if $q' <: q$} \\
+            &=& mutable & \text{otherwise} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$\lor$}}\label{equ-qual-join}
+\begin{array}{llll}
+q \lor q'  &=& q' & \text{if $q <: q'$} \\
+            &=& q & \text{if $q' <: q$} \\
+            &=& readonly & \text{otherwise} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+\newpage
+
+\subsubsection{Types to Qualifiers}
+
+% The implementation will insert qualifier annotations on every type that
+%  does not have an annotation.
+%  See section on defaults.
+
+$LowerQual$ and $UpperQual$ are mappings from types to qualifiers.
+$LowerQual$ and $UpperQual$ are not defined for every type;
+however, in practice we have the compiler assume a default qualifier
+wherever $LowerQual$ or $UpperQual$ is not defined.
+Qualifier defaults are discussed in another chapter.
+
+\begin{equation*}\tag{Qual-Annot}\label{equ-qual-annot}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T@q\ {\bf wf} \\
+\midrule
+\Gamma \vdash LowerQual(T@q) = q\ ,\ UpperQual(T@q) = q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Qual-TSEL-1}\label{equ-qual-tsel-1}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash p \ni L:S..U \\
+\Gamma \vdash LowerQual(S) = q \\
+\midrule
+\Gamma \vdash LowerQual(p.L) = q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Qual-TSEL-2}\label{equ-qual-tsel-2}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash p \ni L:S..U \\
+\Gamma \vdash UpperQual(U) = q \\
+\midrule
+\Gamma \vdash UpperQual(p.L) = q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Qual-RFN-1}\label{equ-qual-rfn-1}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T\ \{ z \Rightarrow \overline{D} \}\ {\bf wf} \\
+\Gamma \vdash LowerQual(T) = q \\
+\midrule
+\Gamma \vdash LowerQual(T\ \{ z \Rightarrow \overline{D} \}) = q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Qual-RFN-2}\label{equ-qual-rfn-2}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T\ \{ z \Rightarrow \overline{D} \}\ {\bf wf} \\
+\Gamma \vdash UpperQual(T) = q \\
+\midrule
+\Gamma \vdash UpperQual(T\ \{ z \Rightarrow \overline{D} \}) = q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$\land$-1}}\label{equ-qual-meet-1}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T \land T'\ {\bf wf} \\
+\Gamma \vdash LowerQual(T) = q\ ,\ LowerQual(T') = q' \\
+\midrule
+\Gamma \vdash LowerQual(T \land T') = q \land q' \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$\land$}-2}\label{equ-qual-meet-2}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T \land T'\ {\bf wf} \\
+\Gamma \vdash UpperQual(T) = q\ ,\ UpperQual(T') = q' \\
+\midrule
+\Gamma \vdash UpperQual(T \land T') = q \land q' \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$\lor$-1}}\label{equ-qual-join-1}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T \lor T'\ {\bf wf} \\
+\Gamma \vdash LowerQual(T) = q\ ,\ LowerQual(T') = q' \\
+\midrule
+\Gamma \vdash LowerQual(T \lor T') = q \lor q' \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Qual-$\lor$}-2}\label{equ-qual-join-2}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T \lor T'\ {\bf wf} \\
+\Gamma \vdash UpperQual(T) = q\ ,\ UpperQual(T') = q' \\
+\midrule
+\Gamma \vdash UpperQual(T \lor T') = q \lor q' \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+
+\newpage
+
+\subsubsection{Subtyping}
+
+I define two subtype relationships \mbox{$<:_0$} and $<:$.
+\mbox{$<:_0$} is the original subtype relationship in DOT,
+with the addition of rules \mbox{$<:_0$-Q} and \mbox{Q-$<:_0$}.
+These rules ignore type qualifiers.
+
+\mbox{$<:$} also contains all subtyping rules in DOT,
+but with the addition of rules \mbox{$<:$-Q} and \mbox{Q-$<:$}.
+
+
+\begin{equation*}\tag{\mbox{$<:_0$-Q}}\label{equ-lt0-q}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T <:_0 T' \\
+\midrule
+\Gamma \vdash T <:_0 T' @ q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Q-$<:_0$}}\label{equ-q-lt0}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T <:_0 T' \\
+\midrule
+\Gamma \vdash T @ q <:_0 T' \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{$<:$-Q}}\label{equ-lt-q}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T <:_0 T'\ ,\ UpperQual(T) <: q \\
+\midrule
+\Gamma \vdash T <: T' @ q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{\mbox{Q-$<:$}}\label{equ-q-lt}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T <:_0 T'\ ,\ q <: LowerQual(T') \\
+\midrule
+\Gamma \vdash T @ q <: T' \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+
+\newpage
+
+\subsubsection{Viewpoint Adaptation}
+
+\begin{equation*}\tag{VPField-1}\label{equ-vpfield-1}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash UpperQual(V) = q \\
+\Gamma \vdash UpperQual(T) = rothis \\
+\midrule
+\Gamma \vdash VPField(V,T) = T @ q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{VPField-2}\label{equ-vpfield-2}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash UpperQual(T) = readonly \\
+\midrule
+\Gamma \vdash VPField(V,T) = T \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{VPMeth-1}\label{equ-vpmeth-1}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash UpperQual(V) = q \\
+\Gamma \vdash UpperQual(T) = rothis \\
+\midrule
+\Gamma \vdash VPMeth(V,S,T) = T @ q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{VPMeth-2}\label{equ-vpmeth-2}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash UpperQual(S) = q \\
+\Gamma \vdash UpperQual(T) = roparam \\
+\midrule
+\Gamma \vdash VPMeth(V,S,T) = T @ q \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{VPMeth-3}\label{equ-vpmeth-3}
+\boxed{
+\begin{array}{c}
+q \in \{ mutable, readonly \} \\
+\Gamma \vdash UpperQual(T) = q \\
+\midrule
+\Gamma \vdash VPMeth(V,S,T) = T \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+\subsubsection{Receiver Checking}
+
+
+\begin{equation*}\tag{QualCompat-1}\label{equ-qual-compat-1}
+\boxed{
+\begin{array}{c}
+q \in \{ rothis, roparam, readonly \} \\
+\midrule
+\Gamma \vdash QualCompat(V,q) \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{QualCompat-2}\label{equ-qual-compat-2}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash UpperQual(V) = mutable \\
+\midrule
+\Gamma \vdash QualCompat(V,mutable) \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+
+
+\subsubsection{Constructibility}
+
+We introduce judgements of the form \mbox{$T\ {\bf constr}$}
+to indicate whether a type $T$ is {\em constructible}.
+
+The DOT calculus syntactically differentiated between concrete and
+abstract types, where concrete types could be constructed,
+but abstract types could not.
+However, in DOTMod,
+not every concrete type is constructible.
+
+If a class label is annotated \mbox{$@ModOuter$},
+but is reached through a non-mutable path, then
+the resulting type is not constructible.
+
+Semantically, every access to a member of an outer class is performed through
+a hidden field that refers to an instance of that outer class.
+\mbox{$@ModOuter$} means that the outer-class reference field is $rothis$.
+\mbox{$@NoModOuter$} means that the field either does not exist,
+or is $readonly$.
+Top-level classes use outer-class references to access global state.
+
+\begin{equation*}\tag{Constr}\label{equ-constr}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash p \ni L:S..U\ ,\ L = (@NoModOuter) L_c \\
+\midrule
+\Gamma \vdash p.L\ {\bf constr} \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Constr}\label{equ-constr}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash p: T\ ,\ p \ni L:S..U\ ,\ L = (@ModOuter) L_c \\
+\Gamma \vdash UpperQual(T) = mutable \\
+\midrule
+\Gamma \vdash p.L\ {\bf constr} \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Constr}\label{equ-}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T\ {\bf constr} \\
+\midrule
+\Gamma \vdash T \{ z \Rightarrow \overline{D}\}\ {\bf constr} \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Constr}\label{equ-}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T\ {\bf constr}\ ,\ T'\ {\bf constr} \\
+\midrule
+\Gamma \vdash T \land T'\ {\bf constr} \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{Constr}\label{equ-}
+\boxed{
+\begin{array}{c}
+\midrule
+\Gamma \vdash \top\ {\bf constr} \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+
+% Constructability and inheritance
+% Constructability and type refinement
+
+
+
+\section{Rules Modified in DOTMod}
+
+Most rules in DOT are unchanged in DOTMod.
+The rules that are changed are discussed in this section.
+Parts of rules newly added to (or changed in) DOTMod are in boxes.
+
+\subsubsection{Type Assignment}
+
+\begin{equation*}\tag{SEL}\label{equ-sel}
+\begin{array}{c}
+\Gamma \vdash t : V\ ,\ t \ni l : T \\
+\boxed{\Gamma \vdash VPField(V, T) = U} \\
+\midrule
+\Gamma \vdash t.l : \boxed{U} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{MSEL}\label{equ-msel}
+\begin{array}{c}
+\Gamma \vdash t: V\ ,\ t': S'\ ,\ t \ni (@q)m: S \rightarrow T \\
+\boxed{\Gamma \vdash VPMeth(V,S',T) = U} \\
+\boxed{\Gamma \vdash QualCompat(V,q)} \\
+\boxed{\Gamma \vdash S' <:_0 S\ ,\ LowerQual(S) = q'\ ,\ QualCompat(S',q')} \\
+\midrule
+\Gamma \vdash t.m(t'): \boxed{U} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{NEW}\label{equ-new}
+\begin{array}{c}
+y \notin fn(T') \\
+\Gamma \vdash T\ {\bf wfe}\ ,\ \boxed{T\ {\bf constr}}\ ,\ T \prec_y \overline{L:S..U},\overline{D} \\
+\Gamma,y:T \vdash \overline{S <: U}\ ,\ \overline{d}:\overline{D}\ ,\ t':T' \\
+\midrule
+\Gamma \vdash {\bf val}\ y = {\bf new}\ T \{ \overline{d} \}\ ;\ t':T' \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+\newpage
+
+
+\subsubsection{Declaration Subsumption}
+
+
+
+\begin{equation*}\tag{\mbox{MDECL-$<:$}}\label{equ-mdecl-lt}
+\begin{array}{c}
+\Gamma \vdash \boxed{q' <: q}\ ,\ S' <: S\ ,\ T <: T' \\
+\midrule
+\Gamma \vdash ( (@q)m: S \rightarrow T) <: ( (@q')m': S' \rightarrow T') \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+\subsubsection{Well-formedness}
+
+A qualified type is well-formed if its underlying type is well-formed.
+
+\begin{equation*}\tag{\mbox{TQ-WF}}\label{equ-tq-wf}
+\boxed{
+\begin{array}{c}
+\Gamma \vdash T\ {\bf wf} \\
+\midrule
+\Gamma \vdash T@q\ {\bf wf} \\
+\end{array}
+}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Fields cannot be {\em mutable} or {\em roparam}.
+
+\begin{equation*}\tag{\mbox{VDECL-WF}}\label{equ-vdecl-wf}
+\begin{array}{c}
+\boxed{q \in \{ rothis, readonly \}\ ,\ \Gamma \vdash UpperQual(T) = q}\\
+\Gamma \vdash T\ {\bf wf} \\
+\midrule
+\Gamma \vdash l:T\ {\bf wf} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Method receivers cannot be {\em roparam}, and
+method parameters cannot be {\em rothis}.
+
+\begin{equation*}\tag{\mbox{MDECL-WF}}\label{equ-mdecl-wf}
+\begin{array}{c}
+\boxed{q \ne roparam\ ,\ q' \ne rothis\ ,\ \Gamma \vdash UpperQual(S) = q'}\\
+\Gamma \vdash S\ {\bf wf}\ ,\ U\ {\bf wf} \\
+\midrule
+\Gamma \vdash (@q)\ m:S \rightarrow U\ {\bf wf} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\newpage
+\subsubsection{Examples}
+
+\begin{lstlisting}
+class List {
+  type T
+  private var _elem: T
+  def elem: T = this._elem
+  def elem_=(e: T @readonly) = this._elem = e
+  @NoModOuter class It {
+    (@mutable) def next(): T = this.outer.elem
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}
+class MuList extends List {
+  type T = String @mutable
+  //hidden var _elem: T  // ERROR: @mutable fields not allowed
+  //def elem: T
+  //def elem_=(e: T @readonly)
+  //@NoModOuter class It {
+  //  (@mutable) def next(): T = this.outer.elem
+  //}
+}
+var r = new MuList @readonly
+var i = new r.It
+i.next
+\end{lstlisting}
+
+
+
+\section{}
+
+\begin{lstlisting}
+
+\end{lstlisting}
+
+\section{Defaults}
+
+Field: {\em rothis} if unqualified or {\em mutable} concrete type
+
+Getter method receiver: {\em rothis}
+
+Getter method result: {\em rothis} if unqualified or {\em mutable} concrete type
+
+Setter method receiver: {\em mutable}
+
+Setter method parameter: {\em mutable} if unqualified or {\em rothis} concrete type
+
+Ordinary method receiver: {\em mutable}
+
+Ordinary method parameter: {\em mutable} if unqualified or {\em rothis} concrete type
+
+Top-level class: {\em NoModOuter}
+
+Nested class: {\em ModOuter}
+
+
+\section{Polymorphic Purity}
+
+Invariant: Pure functions do not mutate their environments.
+
+Which implies {\em rothis} on the function class's {\em apply} method.
+
+All function classes have {\em @NoModOuter}, since they do not mutate their environments
+(although derived classes may mutate their environments).
+
+(@NoModOuter) trait Function1[-T,+R] {
+  @mutable def apply(t: T): R
+}
+
+(@NoModOuter) trait PureFunction1[-T,+R] extends Function1[T,R] {
+  @rothis def apply(t: T): R
+}
+

@@ -1,0 +1,260 @@
+\begin{equation*}
+\begin{array}{ll}
+\texttt{type with field} & \{ l: T \} \\
+\texttt{type with method} & \{ m(x: S): U^x \} \\
+\texttt{type with type member} & \{ L: S..U \} \\
+\texttt{type with permission tag} & \{ <mutable> \} \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{rcl}
+\{foo:T\} \land \{bar(x:S):U\} &
+=&
+\{foo:T \quad bar(x:S):U\} \\
+ \\
+ \\
+\{foo:T\} \lor \{bar(x:S):U\} &
+=&
+\{\} \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{c}
+\top = \{\} \qquad
+\bot = \texttt{all possible members (unconstructible)} \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{l}
+\texttt{Mutable type with field foo:}\\
+\qquad \{foo:T\} \land \{<mutable>\}\\
+\\
+\texttt{Type with polymorphic mutability:}\\
+\qquad \{foo:T\} \land p.P\\
+ \texttt{where $p$ is a reference:}\ \\
+\qquad p: \{ P: \{<mutable>\}..\top \}\\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{l}
+\texttt{For field } foo: T \\
+\\
+\qquad foo_{get}(p:\{ P: S..\top \})(this: R): U \land p.P \\
+\\
+\texttt{where:} \\
+\qquad U = Readonly(T)\ \texttt{and}\ S \land U = T \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{l}
+\texttt{Consider a method declaration $m$ that takes a function $f$:} \\
+\qquad m(f: \{ apply(y: S): U \})(x: S): U \\
+\\
+\texttt{where $m$ defined to call $f$:}\\
+\qquad m(f)(x) = f.apply(x) \\
+\\
+\texttt{We want $m$ to accept a $readonly$ $x$ where $f$ is $pure$,} \\
+\texttt{but not where $f$ is impure:} \\
+\qquad m(p: \{ P: \{<mutable>\} .. \top \}) \\
+\qquad\qquad (f: \{ apply(y: S \land p.P): U \})(x: S \land p.P): U \\
+
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{l}
+\texttt{For field } foo: T \\
+\\
+\qquad foo_{set}(this: R \land \{ <mutable> \})(x: T): Unit \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{ll}
+t::=  & \\
+\quad x & \quad \texttt{variable} \\
+\quad \{ z \Rightarrow \overline{d} \} & \quad \texttt{new instance} \\
+\quad t.l & \quad \texttt{field selection} \\
+\quad t.m(t) & \quad \texttt{method invocation} \\
+d::= & \\
+\quad L=T & \quad \texttt{type initialization} \\
+\quad l=t & \quad \texttt{field initialization} \\
+\quad m(x)=t & \quad \texttt{method initialization} \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{ll}
+t::=  & \\
+\quad x_1|..|x_n & \texttt{enclosing-method parameter} \\
+\quad z & \texttt{within-method self reference} \\
+\quad \{ z \Rightarrow \overline{d} \} & \texttt{new instance} \\
+\quad t.m(t)..(t) & \texttt{method invocation} \\
+d::= & \\
+\quad L=T & \texttt{type initialization} \\
+\quad l=t & \texttt{field initialization} \\
+\quad m(x_1)..(x_n)=\{ z \Rightarrow \overline{d} \}.l & \texttt{method initialization} \\
+\quad l_{get}(x_1)(this)=this.l & \texttt{getter initialization} \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{l}
+\texttt{New objects are typed
+  $T <: \{<mutable>\}$ when created,} \\
+\texttt{but may be upcast later.} \\
+\end{array}
+\end{equation*}
+
+
+\begin{equation*}
+\begin{array}{ll}
+\texttt{For field read } t.foo: \\
+\\
+\qquad t.foo_{get}(\texttt{new } \{ P = Q\})(t) \\
+\\
+\texttt{where:} \\
+\qquad t: T \\
+\qquad S <: Q <: \top & \texttt{$Q$ within bounds of $P$} \\
+\qquad T <: Q & \texttt{Compatible receiver} \\
+\end{array}
+\end{equation*}
+
+
+def m(x: Int): Int = {
+  y = x
+  y
+}
+\begin{equation*}
+\begin{array}{l}
+m(this)(x) = \{\ z_1 \Rightarrow \\
+\quad y = x \\
+\quad r_1 = z_1.y_{get}(\{z_2 \Rightarrow P=\top\})(z_1) \\
+\}.r_1 \\
+\end{array}
+\end{equation*}
+
+\begin{equation*}
+\begin{array}{l}
+\texttt{- Locals are fields of a} \\
+\texttt{ \ temporary object.} \\
+
+\texttt{- Access to other locals} \\
+\texttt{ \ via self-reference $z_1$.} \\
+
+\texttt{- Field $r_1$ is returned} \\
+\texttt{ \ as result of $m$.} \\
+\end{array}
+\end{equation*}
+
+
+class C {
+  def m(x: Int): Int = x
+}
+new C()
+
+\begin{equation*}
+\begin{array}{l}
+\{\ z_1 \Rightarrow \\
+\quad C = \{\ z_2 \Rightarrow m(this: z_1.C)(x: Int): Int\ \} \\
+\quad newC(this) = \{\ z_3 \Rightarrow \\
+\quad \quad r_1 = \{\ z_4 \Rightarrow m(this)(x) = x \} \\
+\quad \}.r_1 \\
+\quad r_2 = z_1.newC(z_1) \\
+\} \\
+\end{array}
+\end{equation*}
+
+\begin{equation*}
+\begin{array}{l}
+\texttt{- Type definition $C$ is separate from} \\
+\texttt{ \ constructor definition $newC$.} \\
+
+\texttt{- Constructor receiver is a reference} \\
+\texttt{ \ to the enclosing environment.} \\
+\end{array}
+\end{equation*}
+
+
+
+
+
+class C {
+  var foo: C = this
+}
+
+\begin{equation*}
+\begin{array}{l}
+\{\ z_1 \Rightarrow \\
+\quad C = \{\ z_2 \Rightarrow \\
+\quad \quad foo: z_1.C \land \{<mutable>\} \\
+\quad \quad foo_{get}(x_1: \{ P: \{<mutable>\}..\top \})(this: z_1.C): z_1.C \land x_1.P \\
+\quad \quad foo_{set}(this: z_1.C \land \{<mutable>\})(x_2: z_1.C \land \{<mutable>\}): Unit \\
+\quad \} \\
+\quad newC(this) = \{\ z_3 \Rightarrow \\
+\quad \quad r_1 = \{\ z_4 \Rightarrow \\
+\quad \quad \quad foo = z_4 \\
+\quad \quad \quad foo_{get}(x_1)(this) = this.foo \\
+\quad \quad \quad foo_{set}(this)(x_2) = ...(assignment)... \\
+\quad \quad \} \\
+\quad \}.r_1 \\
+\} \\
+\end{array}
+\end{equation*}
+
+
+
+class C {
+  class D { def foo() = C.this }
+}
+\begin{equation*}
+\begin{array}{l}
+\{\ z_1 \Rightarrow \\
+\quad C = \{\ z_2 \Rightarrow D:\bot..\top \ \ \ newD(this:z_1.C): z_2.D\ \} \\
+\quad newC(this) = \{\ z_3 \Rightarrow \\
+\quad \quad r_1 = \{\ z_4 \Rightarrow \\
+\quad \quad \quad D = \{\ z_5 \Rightarrow foo(this:z_4.D):z_1.C \ \} \\
+\quad \quad \quad newD(this) = \{\ z_6 \Rightarrow \\
+\quad \quad \quad \quad r_2 = \{\ z_7 \Rightarrow \\
+\quad \quad \quad \quad \quad outer = this \\
+\quad \quad \quad \quad \quad foo(this) = this.outer_{get}(\{z_8 \Rightarrow P=Q\})(this) \\
+\quad \quad \quad \quad \} \\
+\quad \quad \quad \}.r_2 \\
+\quad \quad \} \\
+\quad \}.r_1 \\
+\} \\
+\end{array}
+\end{equation*}
+
+
+def m(): Unit = {
+  var foo: Int = 2
+  class C { var bar: Int = foo }
+}
+
+
+
+
+\begin{equation*}
+\begin{array}{c}
+\texttt{Path-dependent nominal typing:} \\
+x.D <: x.D \\
+\texttt{but in general,} \\
+y.D\ \cancel{<:}\ x.D \\
+\end{array}
+\end{equation*}
+

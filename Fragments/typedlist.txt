@@ -1,0 +1,73 @@
+JPure example, Fig. 1 page 109:
+
+class TypedList {
+
+	private int length;
+	private @Local Object[] data;
+	private Type elementType;
+	
+	@Local public TypedList(Type type, int maxSize) {
+		length = 0;
+		data = new Object[maxSize];
+		elementType = type;
+	}
+	@Local public void copy(TypedList dst) {
+	
+		// OK: A local method may assign any reference to a field in the locality of a parameter annotated @Local, provided that field is not itself annotated @Local.
+		length = dst.length;
+		elementType = dst.elementType;
+
+		// OK: A local method may assign fresh objects to any field in the locality of a parameter annotated @Local.
+		data = new Object[dst.length];
+		
+		for(int i=0;i!=length;++i) { data[i] = dst.data[i]; }
+	}
+}
+
+// Translated version:
+class TypedList {
+
+	private @nonlocal int length;
+	private @local Object[] data;
+	private @nonlocal Type elementType;
+	
+	@local(this) public TypedList(@nonlocal Type type, int maxSize) {
+		length = 0;
+		data = new Object[maxSize];
+		elementType = type;
+	}
+	@local(this) public void copy(@nonlocal TypedList dst) {
+	
+		length = dst.length;
+		elementType = dst.elementType;
+		
+		data = new Object[dst.length];
+		
+		for(int i=0;i!=length;++i) { data[i] = dst.data[i]; }
+	}
+}
+
+// Def 1: @nonlocal objects are those objects that are considered part of some pure method's prestate.
+
+// Rule 1: @nonlocal is a transitive property
+// Rule 2: @nonlocal objects cannot be modified
+// Rule 3: @nonlocal references cannot be assigned to @local fields
+
+// List with mutable elements?
+lst.put(r)
+
+class List {
+	head: TH
+	class Iter(env: ListFR) {
+		def next(): FR = { c = env.head; ...; c }
+	}
+	class Iter(env: ListRO) {
+		def next(): RO = { c = env.head; ...; c }
+	}
+	class Iter[P](env: List @mutOf[P]) {
+		val _env: @loc() = env
+		// type of _env is 
+		
+		def next(): Poly = { c = env.head; ...; c }
+	}
+}

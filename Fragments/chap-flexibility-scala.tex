@@ -1,0 +1,345 @@
+There are a number of ways to improve the flexibility of the
+basic reference immutability system.
+
+\section{Locality-dependent Result Qualifers}
+
+It is useful to be able to say that a method's result-type qualifier
+depends only on the receiver's qualifier,
+only on the qualifier of a parameter of that method,
+or on neither the receiver's qualifier nor a parameter's qualifier.
+
+
+For example, if a method returns one of its receiver's fields,
+and the method is called with a {\em mutable} receiver reference,
+then the result should also be considered {\em mutable} even though
+the method itself treats the receiver as {\em readonly}.
+Listing~\ref{lst-loc} shows
+
+\begin{lstlisting}[caption={Locality-dependent Results},label={lst-loc},float=htp]
+class C {
+	val f = ...
+	def m1(this: @readonly, c: @readonly): @readonly = {
+		this.f
+	}
+	def m2(this: @readonly, c: @readonly): @readonly = {
+		c.f
+	}
+}
+val c = new C
+val cr: @readonly = new C
+c.m1(c)   // result is @readonly
+c.m1(cr)  // result is @readonly
+cr.m1(c)  // result is @readonly
+c.m2(c)   // result is @readonly
+c.m2(cr)  // result is @readonly
+cr.m2(c)  // result is @readonly
+\end{lstlisting}
+
+
+
+
+
+It is useful to be able to differentiate the following cases:
+
+
+
+It is useful to be able to say that the result of a method was reached through
+a path containing one of that method's parameters.
+
+
+
+
+It is also useful to be able to say that the result of a method
+was not reached through any method parameter.
+
+Listing~\ref{lst-loc} shows three versions of method~{\cd m}, each with a
+different result locality.
+
+
+\begin{lstlisting}[caption={Locality-dependent Results (2)},label={lst-loc-2},float=htp]
+class C {
+	def m1(this: @rothis, c: @readonly): @rothis = {
+		this.f
+	}
+	def m2(this: @readonly, c: @roparam): @roparam = {
+		c.f
+	}
+}
+val c = new C
+val cr: @readonly = new C
+c.m1(c)   // result is @mutable
+c.m1(cr)  // result is @mutable
+cr.m1(c)  // result is @readonly
+c.m2(c)   // result is @mutable
+c.m2(cr)  // result is @readonly
+cr.m2(c)  // result is @mutable
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Locality-dependent Results},label={lst-loc},float=htp]
+class C {
+	def m1(this: @readonly, p: @readonly): @readonly = {
+		this.f
+	}
+	def m2(this: @readonly, p: @readonly): @readonly = {
+		p.f
+	}
+	def m3(this: @mutable, p: @mutable): @mutable = {
+		new D()
+	}
+}
+val c = new C
+val cr: @readonly = new C
+val p: @mutable = ...
+val pr: @readonly = ...
+c.m1(p)
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[caption={Polymorphism with {\em rothis}},label={lst-rothis},float=htp]
+class C {
+  private var f = ...
+  def getF(this: @rothis) = { this.f }
+}
+val mc: C @mutable
+val mf = mc.getF     // returns a mutable reference
+val rc: C @readonly
+val rf = rc.getF     // returns a readonly reference
+\end{lstlisting}
+
+
+
+
+
+\section{}
+
+\begin{lstlisting}
+class C {
+	def m1(this: @mutable)
+}
+def m2(c: C @readonly) {
+	c.m1()     // Error: Cannot call m1 due to incompatible receiver
+}
+val c: @mutable = new C
+m2(c)        // OK: mutable <: readonly
+\end{lstlisting}
+
+\begin{lstlisting}
+class C {
+	def m1(this: @mutable)
+}
+def m2(c: C @readonly @*@calls[C]*@) {
+	c.m1()     // OK: allowed by @calls[C]
+}
+val c: @mutable = new C
+val cr: @readonly = new C
+m2(c)        // OK: calls to c.m1 are allowed here
+m2(cr)       // Error: calls to cr.m1 are not allowed here
+\end{lstlisting}
+
+What restrictions exist on copying references with @calls qualifiers?
+1. calls[D] <: calls[C] where D <: C.
+		calls[D] is less restrictive than calls[C],
+		because the set of methods in D is a superset of the set of methods in C.
+2. The default calls qualifer is @calls[Any] (or $calls_\top$).
+		@calls[Any] entails no call-site restrictions, but neither does it allow
+		any in-callee exceptions.
+3. Therefore,
+	var c: @calls[C]
+	var d: @calls[Any]
+	d = c   // OK
+	c = d   // Error
+4. The key to this system is that a calls[Any] reference r may be
+		passed to a method expecting a calls[C] reference,
+		provided r is of type C and qual(r) <: rcv(m), where
+		m is any method of class C.
+
+\section{Qualifier Polymorphism on Receivers}
+\label{sec-poly-qual}
+
+I introduce a polymorphic qualifier {\em rothis},\footnote{
+	The reason for the name {\em rothis} is that {\em rothis}-qualified
+	references are those which are expected to be reached through an access path
+	rooted at a {\em readonly this.}
+}
+which is similar in purpose and function to
+Javari's {\em romaybe}~\cite{javari} and ReIm's {\em polyread}~\cite{reim}.
+The purpose of {\em rothis} is to improve the flexibility of getter methods.
+Like {\em mutable}-returning methods, {\em rothis}-returning methods are adapated to
+the receiver qualifier at call sites~--
+an {\em rothis}-returning method called with a {\em mutable}
+receiver will yield a {\em mutable} result, and the same method called
+with a {\em readonly} receiver will yield a {\em readonly} result.
+
+% methods with an rothis this will not mutate the locality of this
+However, an {\em rothis}-qualified reference, like a {\em readonly}-qualified reference,
+does not allow mutation of its referent object.
+Also like {\em readonly}, the non-mutation guarantee offered by {\em rothis}
+is transitive.
+Therefore, a method where the receiver parameter {\cd this} is qualified
+by {\em rothis} can be safely called with a {\em readonly} receiver reference~--
+a method with a {\em mutable}-qualified {\cd this} cannot.
+
+There is no particular requirement that an {\em rothis}-returning method
+must have an {\em rothis} {\cd this}, nor that a method with an {\em rothis} {\cd this}
+must have an {\em rothis} result.
+However, it is likely to be the case that the type inference mechanism
+will automatically infer an {\em rothis} result for methods that have an {\em rothis} {\cd this}.
+
+% avoidance of code duplication (const)
+Code duplication is prevented in cases where a method has both an {\em rothis} {\cd this}
+and an {\em rothis} result. Without {\em rothis}, many getter methods would need at least two versions:
+one that returns {\em mutable} results, and another that accepts {\em readonly} receivers.
+
+
+% lattice: between mutable and readonly
+The {\em rothis} qualifier is positioned below {\em readonly} on the qualifier lattice.
+The positioning below {\em readonly} guarantees that an {\em rothis}-returning method
+will never return a reference that was reached through a path that contains
+a {\em readonly} element, unless that path element happens to be {\cd this}.
+
+For example, listing~\ref{lst-rothis} shows a getter method {\cd getF} that
+returns a private field {\cd f}. Calling {\cd getF} with a {\em mutable} receiver
+returns a {\em mutable} reference, and calling {\cd getF} with a {\em readonly}
+receiver returns a {\em readonly} reference.
+The receiver parameter {\cd this} is shown
+explicitly, qualified by {\em rothis}. (Scala does not support explicit {\cd this} parameters~--
+the example here does not compile as shown. I will discuss syntactially-valid
+alternative annotation schemes in a later chapter.)
+I assume here that the field {\cd f} is {\em mutable}, and that the result of
+method {\cd getF} is inferred.
+
+\begin{lstlisting}[caption={Polymorphism with {\em rothis}},label={lst-rothis},float=htp]
+class C {
+  private var f = ...
+  def getF(this: @rothis) = { this.f }
+}
+val mc: C @mutable
+val mf = mc.getF     // returns a mutable reference
+val rc: C @readonly
+val rf = rc.getF     // returns a readonly reference
+\end{lstlisting}
+
+
+% other approaches: polyread/romaybe
+
+% other approaches: generalization over parameters (prev) - handling of multiple params
+Initially, I tried a multi-parameter interpretation of {\em rothis}
+where any number of method parameters (in addition to {\cd this}) participated
+in the viewpoint adaptation operation.
+In the multi-parameter interpretation, the result of an {\em rothis}-returning
+method is the least upper bound of the qualifiers on all arguments passed by the caller
+to {\em rothis}-qualified method parameters.
+However, I have yet to find a practical or idiomatic Scala example that
+would benefit from a multi-parameter interpretation.
+
+\begin{comment}
+% The reason built-in polymorphism doesn't work is that what we usually
+%  want is to relate the result qualifier to the qualifiers of one or more parameters,
+%  even though the underlying types of the parameters and result could be incompatible.
+Scala has built-in support for type polymorphism.
+Listing~\ref{lst-polymorph-via-types} shows 
+I conjecture that, for any practical cases where qualifier polymorphism beyond {\em rothis}
+is required, Scala's standard facilities for type polymorphism will be adequate.
+\begin{lstlisting}[caption={Qualifier Polymorphism Via Type Polymorphism},label={lst-polymorph-via-types},float=htp]
+def m(t: T): R = ...                                      // monomorphic
+def m[U <: T @readonly, V <: R @readonly](t: U): V = ...  // polymorphic 
+\end{lstlisting}
+\end{comment}
+
+When read through an environment reference, a local variable must be observed to
+have a type with a field-admissible qualifier.
+Specifically, variables with {\em fresh} or {\em rothis} qualifiers are observed
+to have {\em mutable} or {\em readonly} qualifiers (respectively) when read from within nested classes.
+The qualifier adjustment occurs before viewpoint adaptation.
+
+%The reason for not allowing a nested-class variable read to yield an {\em rothis}
+%result is that {\em rothis} is a polymorphic qualifier that does not have the
+%same meaning when observed from inside a nested class.
+
+
+%The reason for not allowing a nested-class variable read to yield a {\em fresh}
+%result is that an object of the type of the nested class could survive past
+%the return of the enclosing method.
+%After the enclosing method returns, the {\em fresh}-qualified reference is
+
+When a variable is written from within a nested class, its qualifier is not adjusted.
+If variable type qualifiers were adjusted on writes, then {\em mutable} references could
+get written to {\em fresh} variables, or {\em readonly} references could get written to
+{\em rothis} variables.
+
+\section{Qualifier Polymorphism on Formal Parameters}
+\label{sec-poly-qual-param}
+
+TBD.
+
+\section{Returning Fresh References} \label{sec-fresh}
+
+TBD.
+
+\section{Viewpoint Adaptation on New Object Construction} \label{sec-vp-new}
+
+TBD.
+% Basic idea: have "new" return a qualifier equal to the path-dependent qualifier used to select the type
+
+\section{The Package Hierarchy} \label{sec-packages}
+
+Environment reference qualifiers can be extended to express the ability to mutate
+within a particular package.
+Listing~\ref{lst-package-env} shows a class {\cd C} that updates a static counter
+during construction. Class {\cd C}'s environment reference allows mutation
+within the inner package~{\cd B}, but not the outer package {\cd A}.\footnote{
+	Packages in production code are usually arranged in a file system hierarchy
+	rather than a scoped hierarchy as shown in listing~\ref{lst-package-env}.
+	Listing~\ref{lst-package-env} shows a scoped hierarchy for clarity of presentation.
+}
+The environment qualifier~\mbox{{\em mutable}$_B$} allows mutation within
+object~{\cd D}, which is within package {\cd B}.
+
+%Like nested classes, packages are arranged in a hierarchy.
+%Unlike ordinary classes, package contents are always instantiated in the static environment.
+
+\begin{lstlisting}[caption={Packages and Environment References},float={htp},label={lst-package-env}]
+package A {
+	package B {
+		class C(env: @*@mutEnv[B]*@) {
+			D.initCount += 1           // update a static counter
+		}
+		object D {
+			var initCount = 0
+		}
+	}
+}
+\end{lstlisting}
+
+In Scala, hierarchies of packages are intentially similar to hierarchies of objects.
+Listing~\ref{lst-object-env} shows the replacement of the {\cd package}
+keyword with the {\cd object} keyword, with no change to code meaning.
+
+\begin{lstlisting}[caption={Objects and Environment References},float={htp},label={lst-object-env}]
+object A {
+	object B {
+		class C(env: @*@mutEnv[B]*@) {
+			D.initCount += 1           // update a static counter
+		}
+		object D {
+			var initCount = 0
+		}
+	}
+}
+\end{lstlisting}
+
+At first glance, supporting mutation permissions at the package level
+may seem less than useful in a purity system~-- packages are globally-visible
+entities, which means that side effects within packages are potentially
+observable from anywhere.
+However, limitation of observational exposure is a separate problem.
+It may be possible to show in future work that some methods can
+observe side effects only within certain packages, making them independent from
+methods that mutate only within different packages.
+In any case, knowing that a method can mutate only within certain packages
+could aid the programmer in understanding what side effects a method can produce.
+
+\section{Side Effects in the External World} \label{sec-external-world}
+
+TBD.

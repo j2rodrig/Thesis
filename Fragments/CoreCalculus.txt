@@ -1,0 +1,195 @@
+cd ::= class C extends D { fd* md* }             class
+fd ::= t f                                       field
+md ::= t m(t this, t x) { (t y)* s; return y }   method
+s  ::= s; s | x = new t() | x = y | x = y.f | x.f = y | x = y.m(z)      statement
+t  ::= q C                                       qualified type
+q  ::= readonly | polyread | mutable             qualifier
+
+
+(Core Calculus from Figure 1 of ReIm 2012 paper)
+
+* The type qualifiers are orthogonal to the types, allowing the qualifiers to be treated independently.
+* (t y)* is a sequence of local variable declarations.
+
+
+A method with all non-mutable parameters is @pure.
+
+mutable == mutable_{world}   -- mutable everywhere
+mutable_{c}    --- mutable within constructor c
+mutable_{m}    --- mutable within method m
+readonly == mutable_{null}    --- mutable within nothing
+
+owners(c) -> c*
+qual(T) -> q           -- returns the actual or inferred qualifier on type T
+qual(t) -> q           -- returns the actual or inferred qualifier of term t
+
+	Default qualifier subscript of method or constructor: same as qualifier of owning method or constructor
+	(by method qualifier, I mean the qualifier of the method's this;
+	for constructors, the qualifier subscript is the subscript of the fresh thing returned.)
+
+  qual(T_c) = qual(...
+  qual(T) = fresh       for all other T
+
+
+applyQual(T_c) -> q   -- qualifier on the apply method of the concrete type T_c
+
+q_x  v>  q_y  -> q_z   -- viewpoint adaptation operator
+
+
+qualThis(m) -> q_t
+qualThis(c) -> q_t
+q_t ::= mutable_c | rothis
+
+* The bottom mutable type is mutable_{world}.
+
+
+Problem with this-type passed to constructors:
+Field defs in parent traits must respect the this-qualifier of the constructor.
+Poss. 1: Ref-check parent-trait this-refs for compat. w/ ctor class.
+Poss. 2: Infer necessary this-refs from contained field-defs. (this seems hard[er])
+Poss. 3: Do 1, but default ctor this-defs to readonly (essentially, don't modify anything outside this, unless otherwise noted)
+
+
+substitutable(q_a, q_b) =     -- can I substitute q_b for q_a?
+		true    if q_b <: q_a
+    true    if q_a is rothis and q_b is readonly
+
+
+t ::=                    Term
+   t.m(t)                   method invocation
+c ::= T_c { d* }         Constructor
+d ::=                    Initialization
+    l = v                   field initialization
+		m(x) = t                method initialization
+//cd ::= class C extends D { fd* md* }             class
+//fd ::= t f                                       field
+//md ::= t m(t this, t x) { (t y)* s; return y }   method
+s  ::= s; s | x = new t() | x = y | x = y.f | x.f = y | x = y.m(z)      statement
+t  ::= q C                                       qualified type
+q  ::= readonly | polyread | mutable             qualifier
+
+D ::=
+   m : S -> U               method declaration
+
+with L/ t : T
+
+  (VAR)
+	x : T in L
+	x /= this
+	------
+
+  (SEL)
+  L/ t contains l : T'
+	------
+	L/ t.l : withQual(T', qual(T) V qual(T'))
+
+
+  (MSEL)
+  L/ t contains m : S -> U
+	L/ t' : S' , S' <: S
+	substitutable(qual(m), qual(T))
+	------
+	L/ t.m(t') : withQual(U, qual(T) V qual(U))
+
+
+
+class C {
+	@pure def m(this: @mutable[C]) {
+		class D {
+			def m1(this: @mutable[C]) {
+			}
+		}
+	}
+}
+
+
+owningClass(m|c) -> c
+owningMethod(m_1) -> m_2
+
+mutableWithin(m_1, m_2)
+
+
+
+
+x,y,z                   variable
+v ::=                   value
+   x                       variable
+	 frameRef(m)             method frame
+t ::= 
+   t.m(v, v, t)
+
+
+D::=
+   m(this: owningClass(m), encl: owner(m), formal: S) -> U
+
+
+
+When a function object is created,
+the resulting reference qualifier is the same as the receiver qualifier where the function
+constructor is defined.
+
+Generally: the default qualifier of a constructor type is the receiver qualifier at the constructor's location.
+
+
+
+----- dep -----
+
+cd ::= class C<td*>(encl: t@eq) extends D { fd* md* cd* }             class
+md ::= m<td*>(static: @eq, this: t@rq, encl: t@eq, x: t@pq): t@q =    method
+       { vd* s; return e }
+td ::= T: @fq                                                         type parameter
+fd ::= f: t@fq                                                        field
+vd ::= f: t@q                                                         variable
+t  ::= C | T                                                          named type
+rq ::= mutable | rothis
+eq ::= mutable | readonly
+fq ::= mutable | bounded  | readonly
+pq ::= fresh   | mutable  | bounded  | readonly
+q  ::= fresh   | mutable  | rothis   | bounded  | readonly
+e  ::= x | this.f | static.f | encl.v | new t | e.f
+s  ::= s; s | x = e | e.f = e | e      statement
+
+* D may be a linearization of traits
+* encl is a reference into the immediately enclosing environment,
+  which may be a package, class, or method.
+  If the immediately enclosing environment is a package or class, then
+	this == encl.
+* method polymorphism is represented by allowing methods to have type parameters.
+* reading a variable through this results in a field type;
+  fresh is upcast to mutable, and rothis is upcast to readonly.
+
+[TNEW]
+
+-
+L/ x = new t:@q
+
+[TASSIGN]
+
+
+----------
+A Calculus more like Dotty
+
+v ::=                Value
+     x                    variable
+t ::=                Term
+     v                    variable
+     val x = new c; t     new instance
+		 t.l                  field selection
+		 t.m(t)               method invocation
+p ::=                Path
+     x                    variable
+		 p.l                  selection
+
+
+S,T,U,V,W ::=
+		p.L                   type selection
+		T 􏰋{ z ⇒ D* }􏰌
+		T∧T
+		T∨T
+		⊤
+		⊥
+
+D ::=              // declaration
+    L : (S..U) @Q_f       // type declaration
+		l : T @Q_f          // value declaration
+		m : 

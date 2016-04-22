@@ -1,0 +1,193 @@
+Idioms
+(approach: work through Stitch project, finding purity)
+
+trait CodeSamples {
+	val arr: Array[T]
+	val lst: List[T]
+	val mmp: mutable.Map[S,T]
+
+	// Accessor
+	def getArr = arr
+	def getLst = lst
+
+	// ElementAccess
+	def getArrElem(n: Int) = arr(n)
+	def getLstElem(n: Int) = lst(n)
+
+	// Slice
+	def slc = arr.take(2)
+
+	// Concatentation
+	def arrCat = arr ++ arr
+	def lstCat = lst ::: lst
+
+	// ValueRetrieval
+	def vls = mmp.values
+
+	// FilterMap
+	def fltrmap = (lst filter (_.e)) map (_.f)
+
+	// FindInList
+	def fnd(i: T): Option[T] = {
+		lst.foreach{ t => if (i==t) return Some(t) }
+		return None
+	}
+}
+
+---------------------------
+Expanded Examples
+---------------------------
+
+// ElementAccess
+@pure(this) def getArr(n: Int) = arr.apply(n)
+@pure(this) def getLst(n: Int) = lst.apply(n)
+
+final class Array[T](_length: Int) {
+	@pure(this) def apply(i: Int): T = ???
+}
+
+trait TraversableLike[+A, +Repr] {
+	@pure(this) def repr: Repr = this.asInstanceOf[Repr]  //// method is pure if this is not mutable. this and return are both @polyread.
+}
+trait LinearSeqOptimized[+A, +Repr <: LinearSeqOptimized[A, Repr]] extends TraversableLike[A, Repr] {
+	@pure def isEmpty: Boolean
+
+	@pure(this) def head: A
+
+	@pure(this) def tail: Repr
+
+	@pure(this) def apply(n: Int): A = {   //// alternatively: @pure @polyread(this) def apply(n: Int): A @polyread
+		val rest = drop(n)
+		if (n < 0 || rest.isEmpty) throw new IndexOutOfBoundsException("" + n)
+		rest.head
+	}
+	
+	@pure(this)
+	override /*TraversableLike*/
+	def drop(n: Int): Repr = {
+		var these: Repr = repr
+		var count = n
+		while (!these.isEmpty && count > 0) {
+			these = these.tail
+			count -= 1
+		}
+		these
+	}
+}
+sealed abstract class List[+A] extends LinearSeqOptimized[A, List[A]] {
+}
+final case class ::[B](private var hd: B, private[scala] var tl: List[B]) extends List[B] {
+	override def head : B = hd
+	override def tail : List[B] = tl
+	override def isEmpty: Boolean = false
+}
+public class Throwable {
+	private transient Object backtrace;
+    private String detailMessage;
+	private StackTraceElement[] stackTrace = UNASSIGNED_STACK;
+	@mutable(this) public Throwable(String message) {
+		fillInStackTrace();
+		detailMessage = message;
+	}
+	@mutable(this) public synchronized Throwable fillInStackTrace() {
+		if (stackTrace != null ||
+			backtrace != null /* Out of protocol state */ ) {
+			fillInStackTrace(0);
+			stackTrace = UNASSIGNED_STACK;
+		}
+		return this;
+	}
+	private native Throwable fillInStackTrace(int dummy);  //// presumably, only modifies this and stuff invisible to non-native methods
+}
+
+
+// Concatentation
+def arrCat = arr ++ arr
+def lstCat = lst ::: lst
+
+implicit def refArrayOps[T <: AnyRef](xs: Array[T]): ArrayOps[T] = new ArrayOps.ofRef[T](xs)
+
+trait GenTraversableOnce[+A] { self =>
+	def seq: TraversableOnce[A]
+
+	def foreach[U](f: A => U): Unit   //// implemented in IterableLike and IndexedSeqOptimized
+
+	def size: Int = {   //// overridden in SeqLike
+		var result = 0
+		for (x <- self) result += 1
+		result
+	}
+}
+
+trait TraversableLike[+A, +Repr] extends GenTraversableOnce[A] {
+	def repr: Repr = this.asInstanceOf[Repr]
+	
+	protected[this] def thisCollection: Traversable[A] = this.asInstanceOf[Traversable[A]]
+	
+	def ++[B >: A, That](that: GenTraversableOnce[B])(implicit bf: CanBuildFrom[Repr, B, That]): That = {
+		val b = bf(repr)
+		if (that.isInstanceOf[IndexedSeqLike[_, _]]) b.sizeHint(this, that.seq.size)
+		b ++= thisCollection
+		b ++= that.seq
+		b.result
+	}
+}
+
+trait SeqLike[+A, +Repr] extends TraversableLike[A, Repr] {
+}
+
+trait ArrayOps[T] extends SeqLike[T, Array[T]] {
+}
+
+object ArrayOps {
+	final class ofRef[T <: AnyRef](override val repr: Array[T]) extends AnyVal with ArrayOps[T] with ArrayLike[T, Array[T]] {
+
+		override protected[this] def thisCollection: WrappedArray[T] = new WrappedArray.ofRef[T](repr)
+		override protected[this] def toCollection(repr: Array[T]): WrappedArray[T] = new WrappedArray.ofRef[T](repr)
+		override protected[this] def newBuilder = new ArrayBuilder.ofRef[T]()(ClassTag[T](arrayElementClass(repr.getClass)))
+
+		def length: Int = repr.length
+		def apply(index: Int): T = repr(index)
+		def update(index: Int, elem: T) { repr(index) = elem }
+	}
+}
+
+
+// List with Iterator example
+trait IteratorExample {
+
+	trait Iterator[S] {
+		@pure def hasNext: Boolean
+		@pure def next: S
+	}
+
+	trait List[T] {
+		def isEmpty: Boolean
+		def head: T
+		def tail: List[T]
+
+		@pure @mutable
+		def iterator = new Iterator[T @polyread] {
+			def hasNext: Boolean = !myListRef.isEmpty
+			@mutable(this) @polyread(List.this)  // however: List.this is taken from the environment, not from the caller of the method – it therefore has the same mutability as it did for its caller: that is, @polyread with origin[iterator]. (Stated another way:) The caller of next only has an Iterator.this, not a List.this. To find a List.this, we need to search the environment.
+			def next: T @mutabilityOf(List.this) =  // Result of next has the type T @polyread[iterator]. The receiver for next is not of type List, so the environment is searched. The method “iterator“ does have a receiver of type List; the @pure annotation on iterator types the receiver as @polyread.
+			{
+				val element = myListRef.head  // type is: T
+				myListRef = myListRef.tail
+				element
+			}
+
+			private[this] var myListRef = List.this  // type is: List[T] @polyread[iterator]
+		}
+	}
+
+	class ConcreteList[U](_head: U, _tail: List[U]) extends List[U] {
+		def isEmpty: Boolean = false
+		def head: U = _head
+		def tail: List[U] = _tail
+	}
+
+	val rlst: ConcreteList[V @readonly]
+	val iter = rlst.iterator  // type is: 
+}
+

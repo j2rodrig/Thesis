@@ -1,0 +1,166 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{alltt}
+\usepackage{amsmath}
+\usepackage[greek,english]{babel}
+%\usepackage{booktabs}
+%\usepackage{cite}
+%\usepackage{color}
+\usepackage{fixltx2e}
+\usepackage[T1]{fontenc}
+%\usepackage{fullpage}
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+%\usepackage{mathtools}
+\usepackage{mdwlist}
+%\usepackage{needspace}
+\usepackage{url}
+\usepackage{verbatim}
+\usepackage{xspace}
+
+% Fonts and symbols
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage[scaled=.65]{beramono}
+\usepackage{courier}
+\usepackage{times}
+
+\newenvironment{absolutelynopagebreak}
+  {\par\nobreak\vfill\penalty0\vfilneg
+   \vtop\bgroup}
+  {\par\xdef\tpd{\the\prevdepth}\egroup
+   \prevdepth=\tpd}
+
+\newcommand{\greekmu}{\greektext m\latintext}
+
+\newcommand{\tab}[0]{\hspace{0.4cm}}
+
+\renewcommand{\ttdefault}{txtt}
+
+\lstset{
+	basicstyle=\footnotesize\ttfamily,
+	tabsize=4,
+	extendedchars=true,
+	breaklines=true,
+	escapeinside={(*}{*)}
+}
+
+\newcommand{\code}[1]{\lstinline$#1$}
+
+
+
+\begin{document}
+
+\title{
+	An Alternative Effect-Checking System for Scala
+}
+\author{Jonathan Rodriguez\\University of Waterloo}
+\maketitle
+
+The objective of the proposed work is to develop a side-effect
+annotation system based on reference immutability for the Scala~\cite{scala-book} language
+(specifically, the Dotty compiler~\cite{dotty}).
+The system is inspired by ReIm~\cite{reim}, a reference-immutability checker
+for Java.
+
+% What reference immutability is.
+In a reference immutability system, a \emph{read-only reference}
+has a \emph{deep} or \emph{transitive} guarantee that no writes will occur
+to any object that has been reached through that reference
+(in constrast to C++'s \emph{const} or Java's \emph{final}, which provide shallow
+or non-transitive guarantees only).
+% What reference immutability can be used for: purity? concurrency? compiler optimizations?
+% Is it just purity that's important? What are examples of useful guarantees that we might have?
+% Reference immutability is a contributor guarantee (can be used in combination with other information to prove stuff)
+Reference immutability guarantees have several uses -- in conjunction with other
+readily-available information, reference immutability can be used to
+express that certain objects cannot be modified after construction, and to
+modularly prove absence of side effects (functional \emph{purity}).
+In addition to aiding human reasoning,
+information about immutability and purity could support compiler
+optimizations such as automatic memoization and parallelization.
+	% relate to side-effects
+	% talk about purity
+	% compiler optimizations - 
+	% automatic parallelization of pure functions
+
+
+% Unanswered questions:
+% Scala language more complicated than Java:
+% Dependent types (what does this have to do with anything?),
+% First-class functions (closures),
+% Arbitrary nesting of functions and classes.
+% Existing work: efftp (cite problems), Insane (no checking), others (not for Scala).
+% Our work is also for dotty.
+% We hope that the findings will be transferrable to other languages with Scala-like features
+ReIm, unfortunately, is built for Java, not Scala.
+Scala supports (and seems to encourage the ubiquitous use of)
+first-class functions, nested function definitions, and lambda expressions.
+Existing approaches for Scala either do not support modularly checkable annotions
+(e.g., Insane~\cite{effect-analysis-callbacks}) or have not been systematically evaluated
+on real programs (e.g., Efftp~\cite{efftp}).
+We attempted to evaluate Efftp on real programs, but we were unable to
+perform a sound evaluation due to the errors we encountered
+in Efftp's implementation.
+
+
+% Support for performing inference in addition to checking: Scala seems to encourage a programming style with lots of defintions, and also automatically generates definitions.
+
+% reference imm vs object imm
+
+\begin{comment}
+Reference immutability is a form of ??deep ownership
+where mutations of shared state cannot be performed through any access path
+that contains a \emph{read-only reference}.
+\emph{ReIm~\cite{reim}} implements a reference immutability system for Java.
+A ReIm-like system may also work well for Scala code,
+but Scala introduces a variety of language constructs that make it difficult to
+see clearly whether a ReIm-like system would work well for Scala.
+\end{comment}
+
+Our expected contributions include:
+\begin{itemize}
+\item The first effect annotation system for Dotty~\cite{dotty},
+	a new compiler front-end for Scala that
+	implements the Dependent Object Types~(DOT) calculus~\cite{dot-calculus}.
+
+\item Demonstration of an approach to side-effect analysis
+	that, unlike Efftp, makes a clearly-visible distinction between datatype annotations
+	(which are propagated like ordinary data types) and
+	effect annotations (which are summaries of entire function bodies).
+	For example, it makes sense to have readonly references and pure functions,
+	but not readonly functions or pure references.
+	Efftp attempts to deal with both kinds of annotations as annotations
+	on function return types, an approach which we believe adds unnecessary complexity
+	to the implementation.
+
+\item A discussion of the surprising correspondence between ReIm and JPure~\cite{jpure}.
+	We find that JPure's notions of freshness and staleness are nearly identical to
+	ReIm's notions of mutability and immutability, respectively.
+	We furthermore find that ReIm's \emph{viewpoint adaptation} makes
+	it strictly more precise than JPure.
+
+\item An evaluation on real programs, e.g., the PSP collections library~\cite{psp-page},
+	the Dotty compiler, and others.
+	%A systematic evaluation of Efftp on
+	%real programs was never performed -- we speculate that the errors in Efftp's implementation
+	%would make a systematic evaluation quite difficult.
+	If time permits, we would like to build an inference tool that can suggest annotations
+	of source files in large projects.
+
+\item We also hope to answer the question of whether Efftp's generalized notion
+	of freshness~\cite{efftp} can provide improvements in precision
+	over a ReIm-like viewpoint adaptation in real programs.
+	%Efftp allows a function to be annotated with the specific localities
+	%it may return. In contrast, freshness in JPure is a simple all-or-nothing condition.
+	
+\end{itemize}
+
+%\bibliographystyle{alpha}
+%\bibliographystyle{plain}
+\bibliographystyle{abbrv}
+\bibliography{../references}
+
+\end{document}

@@ -1,0 +1,1769 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{alltt}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage[greek,english]{babel}
+%\usepackage{booktabs}
+%\usepackage{cite}
+%\usepackage{color}
+\usepackage{fixltx2e}
+\usepackage[T1]{fontenc}
+%\usepackage{fullpage}
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+%\usepackage{mathtools}
+\usepackage{mdwlist}
+\usepackage{multirow}
+%\usepackage{needspace}
+\usepackage{url}
+\usepackage{verbatim}
+\usepackage{xspace}
+
+% Fonts and symbols
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage[scaled=.65]{beramono}
+\usepackage{courier}
+\usepackage{times}
+
+\newenvironment{absolutelynopagebreak}
+  {\par\nobreak\vfill\penalty0\vfilneg
+   \vtop\bgroup}
+  {\par\xdef\tpd{\the\prevdepth}\egroup
+   \prevdepth=\tpd}
+
+\newcommand{\greekmu}{\greektext m\latintext}
+
+\newcommand{\tab}[0]{\hspace{0.4cm}}
+
+\renewcommand{\ttdefault}{txtt}
+
+\lstset{
+	basicstyle=\footnotesize\ttfamily,
+	tabsize=4,
+	extendedchars=true,
+	breaklines=true,
+	escapeinside={(*}{*)},
+	%frame=l,  % trbl for single-line frames, TRBL for double-line frames
+	xleftmargin=1.5\parindent
+}
+
+\newcommand{\code}[1]{\lstinline$#1$}
+
+% Theorem Styles
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+% Definition Styles
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+
+
+\begin{document}
+	
+	% TODO
+	% method viewpoint adaptation: least upper bound on polyread params.
+	% access paths RI type for x.f where x is e.g. @ro List[@mu T] -- what are the implications of defining w.f to be @mu?
+	% related works!
+
+\title{Reference Immutability for Scala}
+\author{Jonathan Rodriguez\\University of Waterloo}
+\maketitle
+
+%The foundation of good programming is modular reasoning.
+%When I, as a programmer, look at a piece of code in isolation,
+%how much do I know about its invariants?
+
+%Critical to modular reasoning is the ability to clearly see what
+%a piece of code will \emph{always do} or \emph{never do},
+%or what effects will \emph{always occur} or \emph{never occur}.
+
+%In the absence of good invariants, you always run the risk of
+%your code being used in ways you don't expect and for
+%purposes you never predicted.
+
+%reference immutability types for modularly checkable documentation of programmer intent
+%incremental annotation
+%where practical, minimize the number of annotations that must be added
+
+Critical to creating large and reliable programs
+is the programmer's ability to reason locally about
+all effects a piece of code may have.
+Compilers can help with this task by automatically enforcing
+certain guarantees or invariants.
+These guarantees are often expressed as data types, which delimit the
+ways in which any given piece of data can be used or operated on.
+Classical data types, however, only provide \emph{shallow} or \emph{path-independent} guarantees --
+the classical type of a field, for example, is independent of
+the chain of references or pointers traversed
+to reach that field.
+As a result, local reasoning about \emph{deep}, \emph{transitive}, or \emph{path-dependent}
+guarantees is not well-supported by classical type systems.
+Many objects logically contain or link to other objects.
+Path-dependent guarantees allow the programmer to express (for example) that a method
+will never modify contained or linked objects.
+The restrictions on the original object's usage are transitively applied to all contained or linked objects.
+In this work, I
+develop an extension of the Scala language's type system to support
+\emph{deep types}.
+Initially, I plan to implement \emph{reference immutability} as an instance of a deep type system,
+but other deep types may also be useful (such as the \emph{safe} guarantee
+inferred by Sălcianu and Rinard's analysis~\cite{purity-effect-java}).
+
+%Oh yeah: using subclassing of annotations (e.g. polyread inherits from readonly) to get the subtyping relationship.
+%  so we may still need to modify the subtyping functions to take the annotations into account.
+
+
+
+%alternative positioning:
+%implementing transitive constraints
+%what kinds of constraints can we represent? Obviously, write constraints... read constraints, I/O constraints...
+
+%expected contrinbutions include: 
+
+
+\section{Introduction}
+\label{introduction}
+
+%Reference immutability
+\emph{Reference immutability} is a constraint on a reference that guarantees that
+no object reached through that reference can be modified.
+The guarantee is \emph{deep} or \emph{transitive} --
+unlike a pointer-to-\emph{const} in C++, a \emph{readonly} reference
+requires that all references contained within the referred-to object
+are treated as \emph{readonly}.
+
+Reference immutability is a weaker guarantee than \emph{object immutability}.
+An object immutability guarantee ensures that immutable objects cannot be modified
+by anyone, but a \emph{readonly} reference only guarantees that objects cannot be modified
+through that specific reference.
+Other, non-\emph{readonly}, references to the same objects are not prohibited.
+
+%Motivation
+Reference immutability is useful as a support for programmer reasoning.
+Reference immutability annotations can be used to express that
+a method will never modify objects reached through certain parameters,
+helping provide the callers of the method with strong guarantees about which
+objects may be modified.
+One example of a situation where readonly parameters are useful is where
+the caller would otherwise have to make a copy of an object
+to guarantee that the original object is not modified.
+Reference immutability annotations can also indicate that the object returned
+to a caller should not be modified.
+For example, a method that performs queries on an immutable graph can safely
+return elements of that graph if its return type is annotated \emph{readonly}.
+Reference immutability also helps programmers express that an object
+can be modified during initialization, but is immutable afterward.
+
+Reference immutability is useful to support stronger guarantees,
+such as object immutability and method purity.
+Object immutability is useful when creating immutable collections or other immutable
+structures.
+Object immutability is present where it is known that all references to an
+object are \emph{readonly}.
+Reference immutability can also express \emph{temporary object immutability},
+which is a guarantee that a method call will not modify an object, although
+the caller can modify it before and after the call.
+
+Method \emph{purity} or \emph{side-effect freedom}
+is present where all references passed to a method (including \code{this}
+and references to the method's enclosing scopes) are \emph{readonly}.
+\emph{Purity} is defined here as the inability to mutate
+objects that exist in a method's \emph{prestate}.
+(A method's \emph{prestate} is the set of all objects that may exist in memory
+immediately prior to invoking the method.)
+
+Work on reference immutability will provide some insight into the implementation
+of other deep guarantees, which may be explored in future work.
+For example, the \emph{safe} guarantee (see~\cite{purity-effect-java})
+is a guarantee that no new aliases will be created that make the safe reference
+(or its transitively reachable references) visible from a method's prestate.
+
+
+%Another possibly-useful guarantee is a guarantee that no \code{volatile}
+%reads are performed on any object reachable through a given reference.
+
+
+\begin{comment}
+Optimizations that depend on referential transparency may also benefit from
+reference immutability.
+If it can be established that a method is side-effect-free, does not throw exceptions,
+and does not perform any synchronization operations
+(such as \code{volatile} reads, interlocked operations, or calls to \code{synchronized} methods),
+then the compiler should be able to treat that method as referentially transparent.
+Extensions to the basic reference immutability system may be able
+to represent \code{volatile} reads, synchronization operations, and I/O,
+but I leave these extensions as challenges for future work.
+%It should be noted that calls to \code{synchronized} methods
+%and many interlocked operations involve writes to memory, which 
+\end{comment}
+
+In this work, I explore how a reference immutability system may be integrated with
+the Scala programming language~\cite{scala-book}.
+Other reference immutability proposals have been implemented for Java (e.g., ReIm~\cite{reim},
+Javari~\cite{javari}), but
+Scala offers different challenges and opportunities.
+Specifically, Scala has built-in support for nested methods,
+generic types, and local type inference.
+I attempt to implement reference immutability in a way that makes sense
+with respect to Scala's design.
+I conjecture that the best way to integrate reference immutability is to
+handle reference immutability constraints like ordinary data types,
+subject as much as possible to the same inference and subtyping rules as other types.
+
+%The Efftp~\cite{efftp} system also attempted to integrate side-effect annotations into
+%the Scala type system, but it ran into difficulties which we conjecture were caused
+%by an attempt to propagate effect types differently than ordinary data types.
+%Our intent is the same as Javari's~\cite{javari} was for Java, except that we leave certain
+%aspects such as dynamic downcasting and assignability for future work.
+
+
+% RI types
+% Implementation in Scala: compiler issues, augmentation of nested methods/classes with extra parameters. Implementation details, timeline.
+% Related work: papers on immutability, side effect analysis, pointer analysis, ownership.
+
+Reference immutability types are explained in detail in section~\ref{ri_types}.
+Integrating reference immutability types with Scala is discussed in section~\ref{scala-integration}.
+Evaluation is discussed in section~\ref{evaluation},
+related work in section~\ref{related-work}, and
+I conclude in section~\ref{conclusion}.
+
+%Scala language
+%Nested methods
+%Local type inference
+%Generics
+
+%Previous proposals
+%ReIm
+%JPure -> later section
+%Javari (is this proposal about 'Scalari'?)
+%JoeE
+
+
+\section{Reference Immutability Types}
+\label{ri_types}
+
+%Problems to fix:
+% checking RI types of first-class functions?
+% least upper bound for parameters?
+% 
+
+% class S[T] { val f: T }
+% val s: @ro = new S[U @mu]
+% s.f = @ro S[T] :> ???
+
+Reference Immutability (RI) Types are qualifiers on ordinary data types.
+In this section, I discuss how basic RI types work, followed by discussions
+of RI type defaults and how RI types could interact with generic types.
+
+The basic RI types I use here are \emph{readonly}, \emph{mutable}, and \emph{polyread}.
+RI types specify deep (or transitive) write permissions.
+A \emph{readonly} type disallows writes to the referenced object, and transitively
+all objects referenced by fields of that object.
+A \emph{mutable} type does not place any restrictions on the use of referenced objects --
+for programs with no RI types, all references are assumed to be mutable.
+A \emph{polyread} (``polymorphic read'') type indicates that readonly restrictions may or may not apply,
+depending on context. (\emph{Polyread} is discussed in detail below.)
+
+RI types form a hierarchy.
+The \emph{mutable} type is a subtype of \emph{polyread},
+and \emph{polyread} is a subtype of \emph{readonly}.
+Briefly, the subtyping relationship is:
+
+\begin{center}
+	mutable <: polyread <: readonly
+\end{center}
+
+The transitive nature of RI types means that readonly restrictions must be
+propagated along access paths.
+In particular, any field accessed through a \emph{readonly} reference must
+be treated as \emph{readonly}, and a \emph{mutable} field accessed through
+a \emph{polyread} reference is treated as \emph{polyread}.
+If \emph{polyread} fields are accessed through \emph{mutable} references,
+they are treated as (or adapted to) \emph{mutable}.
+This rule differs from ReIm and Javari in the case where the field is \emph{mutable}.
+For example, I treat a \emph{mutable} field access through a \emph{readonly}
+reference as \emph{readonly}, whereas Javari treats such an access as \emph{mutable}.
+Javari does this to allow programmers to declare that certain fields are are not
+part of an object's abstract state by explicitly giving them the type \emph{mutable}.
+ReIm does not allow fields to be declared \emph{mutable}.
+My rules are designed to allow the same expressive power as ReIm, but also to
+treat fields and local variables more uniformly than ReIm, which is important for defining
+how RI types interact with nested methods and closures (see section~\ref{scala-integration}).
+Definition~\ref{accesspath-ri-def} summarizes the RI type rule for access paths.
+
+%The transitive nature of RI types means that readonly restrictions must be
+%propagated along access paths -- a reference that is readonly along one
+%access path may be mutable when observed along a different access path.
+%The following table lists all possible combinations of RI types for
+%a given access path~\code{h.k}:
+%We define the RI type of an access path to be at least as restrictive 
+%as any element of that path.
+%(Unlike Javari~\cite{javari}, we do not allow the \emph{mutable} RI type to
+%violate readonly restrictions.)
+
+\begin{definition}
+	\label{accesspath-ri-def}
+	Let \code{h} be an access path to some object~$o$, and let~$r_h$
+	be the Reference Immutability (RI) type of~\code{h}.
+	Furthermore, let~\code{k} be a field of $o$ with an RI type of~$r_k$.
+	The RI type of the access path~\code{h.k}
+	%Given an identifier~\code{h} and an access path~\code{k}
+	%with Reference Immutability (RI) Types~$r_h$ and~$r_k$, respectively,
+	%the RI type of the combined access path~\code{h.k}
+	is $r_h$ if $r_k$
+	is \emph{polyread}, else the RI type of~\code{h.k} is
+	the least upper bound of $r_h$ and $r_k$.
+\end{definition}
+
+The complete list of RI type combinations defined in definition~\ref{accesspath-ri-def} is:
+
+\begin{center}
+	\begin{tabular}{cc|c}
+	RI Type of \code{h} & RI Type of \code{k} & RI Type of \code{h.k} \\
+	\hline
+	mutable & mutable & mutable \\
+	mutable & polyread & mutable \\
+	mutable & readonly & readonly \\
+	polyread & mutable & polyread \\
+	polyread & polyread & polyread \\
+	polyread & readonly & readonly \\
+	readonly & mutable & readonly \\
+	readonly & polyread & readonly \\
+	readonly & readonly & readonly \\
+	\end{tabular}
+\end{center}
+
+
+
+RI types can be used in generic contexts. For example,
+an Iterator class may be declared covariant in its element type,
+so the IR type of the element is also covariant.
+The programmer can declare that such an iterator is \emph{mutable}, but
+contains \emph{readonly} elements~-- in this case, the iterator object itself
+can be modified, but elements returned by the iterator cannot be modified.
+%Elements can be added or removed from this iterator, but elements retrieved
+%from the list cannot be modified.
+The iterator is a subtype of a \emph{polyread} or \emph{readonly} iterator
+with \emph{readonly} elements, but not a subtype of any iterator
+with non-\emph{readonly} elements.
+
+%Covariance, contravariance, and invariance are already supported by Scala.
+%To the extent possible, RI types adhere to 
+
+The purpose of the \emph{polyread} type is for \emph{viewpoint adaptation}.
+Viewpoint adaptation allows a method's return type to vary (or be adapted) depending on
+the types of its parameters. For example, consider a basic getter function
+(shown with an explicit receiver \code{this}):
+\begin{lstlisting}
+class C {
+	private[this] var x: X @polyread = ...
+	def get (this: C @polyread): X @polyread = this.x
+}
+val ro_c: C @readonly = new C
+val mu_c: C = new C
+val ro_x: X @readonly = ro_c.get()   (*// readonly this yields readonly x*)
+val mu_x = mu_c.get()                (*// mutable this yields mutable x*)
+\end{lstlisting}
+
+The \emph{polyread} type allows the programmer to express that \code{get} returns a \emph{mutable}
+result when the receiver object is \emph{mutable},
+but a \emph{readonly} result when the receiver object is \emph{readonly}.
+Without a \emph{polyread} type, I would need two versions of \code{get}
+to achieve this flexibility: one version returning \emph{mutable}, and
+another version returning \emph{readonly}.
+
+I should note that in this example, the field \code{x} could be declared \code{mutable}
+instead of \code{polyread} without having any effect on the semantics or type-correctness
+of the code. The access path \code{this.x} in the body of \code{get} has a resulting type
+of \code{polyread} in either case, which is consistent with definition~\ref{accesspath-ri-def}.
+
+%The return type of \code{C.get} must be \code{@polyread} to avoid code duplication.
+%Otherwise, we would require the programmer to create two versions of \code{C.get}: one returning
+%\code{@readonly} and the other returning \code{@mutable}.
+
+Viewpoint adaptation of \emph{polyread}-returning methods
+occurs at the point of method application.
+If any \emph{polyread} parameter is given a \emph{readonly} argument,
+then the return type is \emph{readonly}.
+%We must conservatively assume
+I must conservatively assume that any \emph{polyread} parameter may be
+%returned or assigned into (the locality of) the returned reference,
+returned,
+so the adapted return type must be \emph{readonly} to protect the \emph{readonly} guarantee
+of the \emph{readonly} argument.
+%If none of the arguments are \emph{readonly}, but at least one is \emph{polyread},
+%then the return type is \emph{polyread}.
+%If all arguments to \emph{polyread} parameters are \emph{mutable},
+Only if all \emph{polyread} parameters are given \emph{mutable} arguments
+can the return type be adapted to \emph{mutable}.
+Consider the following function \code{getter}:
+
+\begin{lstlisting}
+def getter (a:@polyread, b:@polyread, c:@mutable, d:@readonly):@polyread = {
+	c.f = c    // always OK
+	c.f = d    // OK if f is readonly
+	c.f = a    // OK if f is readonly
+	c.f = b    // OK if f is readonly
+	return a   // OK
+	return b   // OK
+	return c   // OK because mutable <: polyread
+	return d   // Error because readonly :> polyread
+}
+\end{lstlisting}
+
+The only side effects that can occur occur through the \code{mutable}
+parameter. An alias to any parameter can be created in the \emph{locality}\footnote{
+The \emph{locality} of an object includes that object plus all objects transitively reachable
+through that object's mutable fields.
+}
+of~\code{c}, provided the field~\code{f} has a compatible type.
+Note that~\code{f} must be \code{readonly} when aliasing to \code{readonly} \emph{or} \code{polyread}
+parameters. If \code{f} is \code{polyread}, then the access path \code{c.f} is \code{mutable},
+disallowing assignment of non-mutable parameters.
+
+The following function \code{adaptsGetter} calls \code{getter} with all RI type combinations as
+arguments to \emph{polyread} parameters:
+
+\begin{lstlisting}
+def adaptsGetter (e:@mutable, f:@polyread, g:@readonly) = {
+	val r1:@mutable  = getter(e, e, e, g)    // returns e
+	val r2:@polyread = getter(f, f, e, g)    // returns e or f
+	val r3:@readonly = getter(g, g, e, g)    // returns e or g
+	val r4:@polyread = getter(e, f, e, g)    // returns e or f
+	val r5:@readonly = getter(e, g, e, g)    // returns e or g
+	val r6:@readonly = getter(f, g, e, g)    // returns e or f or g
+}
+\end{lstlisting}
+
+Conservatively (without knowing anything about \code{getter} except parameter types and return type),
+I must assume that \code{getter} may return any \emph{polyread}
+or \emph{mutable} parameter.
+Preserving the \emph{readonly} or \emph{polyread} guarantees on argument types
+therefore requires that the return type be an upper bound of these argument types.
+One corner case is where a method does not have any \emph{polyread} parameters,
+but nevertheless has a \emph{polyread} return type. For example, consider a version
+of \code{getter} with no \emph{polyread} parameters:
+
+\begin{lstlisting}
+def getter (c:@mutable, d:@readonly):@polyread = {
+	c.f = c    // always OK
+	c.f = d    // OK if f is readonly
+	return c   // OK because mutable <: polyread
+	return d   // Error because readonly :> polyread
+}
+\end{lstlisting}
+
+Because there are no \code{polyread} parameters,
+there is no way for such a method to return anything other than \code{mutable}.
+It is therefore safe to adapt such a method to \code{mutable}.
+Viewpoint adaption of a method return type can therefore be the \emph{least} upper bound
+of the parameter types, where the least upper bound of an empty set is
+defined to be the bottom type \emph{mutable}.
+Definition~\ref{viewadapt-def} summarizes the viewpoint adaptation rule for methods.
+
+%If none of the arguments are \emph{readonly}, but at least one is \emph{mutable},
+%then we assume that some reference in the locality of the mutable argument may
+%be returned, and that the caller may need to mutate that reference after
+%the viewpoint-adapted function returns.
+%The remaining case is where all of the \emph{polyread} parameters are given
+%\emph{polyread} arguments.
+%In this case, the returned reference remains in an unadapted state (\emph{polyread}),
+%allowing unadapted methods to be composed.
+
+%\begin{table}
+%	\begin{center}
+%	\begin{tabular}{ccc|c}
+%	Mutable    & Polyread   & Readonly   & Adapted \\
+%	arguments? & arguments? & arguments? & RI Type \\
+%	\hline
+%	   &   &   & polyread \\
+%	 Y &   &   & mutable \\
+%	   & Y &   & polyread \\
+%	 Y & Y &   & polyread \\
+%	   &   & Y & readonly \\
+%	 Y &   & Y & readonly \\
+%	   & Y & Y & readonly \\
+%	 Y & Y & Y & readonly \\
+%	\end{tabular}
+%	\end{center}
+%	\caption{Viewpoint adaption for \emph{polyread}-returning methods.}
+%	\label{viewadapt-methods}
+%\end{table}
+
+%Table~\ref{viewadapt-methods} lists the possible combinations of argument RI types
+%and the resulting return RI types.
+%The resulting viewpoint adaptation is summarized in definition~\ref{viewadapt-def}.
+
+\begin{definition}
+	\label{viewadapt-def}
+	Let \code{m} be a \emph{polyread}-returning method, and $P$ be the set of all
+	parameters of \code{m} that have the RI type \emph{polyread}.
+	For a given an application of \code{m}, let $A$ be the set of arguments that
+	map to the elements of $P$.
+	The adapted type of the application of \code{m} is the least upper bound
+	of the elements of $A$, or \emph{mutable} if $A$ is empty.
+	%If any elements of $A$ have the RI type \emph{readonly}, then
+	%the adapated type of the application is \emph{readonly}.
+	%Otherwise, if any elements of $A$ have the RI type \emph{mutable}, then
+	%the adapated type of the application is \emph{mutable}.
+	%Otherwise, adapated type of the application is \emph{polyread}.
+\end{definition}
+
+The rules for viewpoint adaptation only need to account for \emph{polyread} parameters.
+If a \emph{polyread}-returning method has \emph{readonly} parameters,
+then those parameters cannot be returned or assigned into the return reference,
+so they cannot affect viewpoint adaptation.
+\emph{Mutable} parameters may be returned or assigned into the returned reference,
+but since \emph{mutable} references can be safely used in \emph{mutable}, \emph{polyread},
+or \emph{readonly} contexts, they do not place any constraints on
+the semantics of viewpoint adaptation.
+
+The viewpoint adaptation discussed in this paper differs from ReIm~\cite{reim} in that
+the RI return types are determined based only on argument types
+(argument types include the receiver type), whereas
+ReIm adapts return types based on the assignment context or call-site context.
+I made this decision primarily for compatibility with Scala's local type inference,
+which determines types bottom-up -- the types of the left-hand sides
+of assignments are not always available before the right-hand side types
+must be determined.
+The decision of ReIm's authors to consider of the assignment context or call-site context
+may permit their inference algorithm to produce more ideal types
+in some cases.
+Their global inference system, ReImInfer, appears to rely
+on call-site context to produce a maximal typing.
+Unfortunately, the maximal typing produced by ReImInfer may become inconsistent
+if generic types are introduced.
+I discuss ReIm and ReImInfer in greater detail in Related Work~(section~\ref{related-work}).
+I restrict my focus to the problem of local inference,
+leaving global inference of RI types as a separate problem
+for future work.
+%The authors of ReIm claim that context sensitivity permits a better
+%typing.
+
+\begin{comment}
+The difference is due to the nature of the inference used.
+ReImInfer is a global inference system, but Scala uses local type inference.
+Under local type inference, the type of the right-hand side of an assignment
+is determined without taking the type of the left-hand side into account.
+Therefore, we can expect the parameter types to be available at a function
+application site, but not necessarily the type that the return value must
+be adpated to.
+Because of the restrictions of local type inference,
+we cannot guarantee a ``best'' typing like ReImInfer.
+However, we should note that ReImInfer does not support generic types,
+and it is questionable whether the approach it takes can
+find best typings that will type-check correctly in the presence of generics.
+We consider global inference and local inference to be separate problems.
+Where global inference addresses the issue of generating or suggesting annotations
+for non-annotated code, local inference is normally used to reduce the programmer's
+annotation burden when working with annotated code.
+My work focuses on the integration of RI types with local type inference,
+leaving global inference as a possibility for future work.
+\end{comment}
+
+%These are roughly the same types as used by ReIm~\cite{reim} and Javari~\cite{javari}
+%(although Javari uses the term \emph{romaybe} instead of \emph{polyread}).
+%However, our interpretation of the distinction between \emph{mutable} and \emph{polyread} differs slightly
+%from ReIm and Javari -- we detail our interpretation below.
+
+\subsection{Defaults}
+\label{ri_type_defaults}
+
+One of the objectives of the RI type system implementation is to permit
+RI annotations to be incrementally added to existing code.
+Another objective is to allow type annotations to be locally inferred.
+Meeting these objectives requires choosing appropriate defaults
+where RI types are not annotated and cannot be inferred.
+
+For code with no RI type information (as would be the case when using a
+pre-compiled library that was compiled without RI types),
+every reference is defaulted to \emph{mutable}.
+Parameters must be \emph{mutable} because of the conservative assumption that any called
+method may mutate the locality of any parameter.
+Return values can safely be assumed \emph{mutable} because in the absence of RI type annotations,
+there is no way to apply \emph{polyread} or \emph{readonly} constraints.
+Fields may be typed as \emph{mutable} or \emph{polyread}, since in both cases
+access through a \emph{mutable} reference will cause the field to behave as \emph{mutable}.
+Local variables may similarly be typed as \emph{mutable} or \emph{polyread} by default.
+If \emph{polyread}, then access through a mutable frame reference %(see section~\ref{framedef_examples})
+will cause the variable to behave as \emph{mutable}.
+These defaults should allow unannotated code to type-check cleanly.
+
+One implication of a \emph{mutable}-everywhere default is that code with
+RI type annotations cannot pass \emph{polyread} or \emph{readonly} arguments
+to unannotated methods.
+While this implication may seem restrictive, it is necessary to
+preserve reference immutability constraints.
+Because it is unknown whether the called method will perform mutations,
+it cannot be guaranteed that a call to that method will preserve the
+\emph{readonly} or \emph{polyread} constraints.
+The ideal way to address this issue is to annotate the called method
+(and as necessary, methods it depends on) and re-compile.
+If it becomes necessary in practice to allow such calls without
+annotating called methods, another annotation may be needed at the call site
+that makes an exception to the type-checking rules (perhaps an intentionally ugly annotation).
+
+For code that does contain annotations, the \emph{mutable} default applies
+anywhere the RI type is not declared or inferred.
+\emph{Mutable} references are assignable to \emph{polyread} or \emph{readonly}
+variables, hopefully relieving programmers from the need to declare RI types
+except on method signatures and certain key variables.
+
+The RI types of fields can be inferred from the constructor, as is usual
+for Scala code.
+The \emph{mutable} default is acceptable here also, since according to
+definition~\ref{accesspath-ri-def}, the resulting RI type of a field access
+is the same regardless of whether the field's type is \emph{mutable} or \emph{polyread}.
+For \emph{readonly}, the programmer still has the option to annotate it explicitly
+or allow it to be inferred.
+
+\subsection{Generic RI Types}
+\label{generic-ri-types}
+
+RI types can be used in generic contexts.
+
+Consider a \emph{mutable} iterator of \emph{mutable} elements.
+Iterators in the Scala collections library are covariant in their element types,
+so a \emph{mutable} iterator of \emph{mutable} elements
+is a subtype of any of the following:
+
+\begin{center}
+	\begin{tabular}{ccc}
+		& & \emph{mutable} iterator of \emph{readonly} elements \\
+	\emph{mutable} iterator of \emph{mutable} elements & <: & \emph{readonly} iterator of \emph{mutable} elements \\
+		& & \emph{readonly} iterator of \emph{readonly} elements \\
+	\end{tabular}
+\end{center}
+
+These types form a lattice with the following additional relationships:
+
+\begin{center}
+	\begin{tabular}{cc}
+	\emph{mutable} iterator of \emph{readonly} elements &
+		\multirow{2}{*}{<: \emph{readonly} iterator of \emph{readonly} elements} \\
+	\emph{readonly} iterator of \emph{mutable} elements \\
+	\end{tabular}
+\end{center}
+
+Most of these types provide the permissions one would naturally expect: e.g.,
+\emph{readonly} iterators of \emph{readonly} elements do not permit any modification, and
+\emph{mutable} iterators of \emph{readonly} elements permit mutation of the iterator itself
+but not the elements it refers to.
+However, \emph{readonly} iterators of \emph{mutable} elements do not necessarily
+permit mutation of their elements even though the elements are declared \emph{mutable}.
+To show why this occurs, consider an iterator over a list of \emph{mutable} elements:
+
+%To show why this occurs, consider an iterator over a list that allows non-destructive peeking
+%of the next element:
+
+\begin{lstlisting}
+trait IteratorOverList[A] {
+	var list: List[A]
+	def setElement(elem: A) = { this.list.head = elem }
+}
+val iterator: IteratorOverList[AnyRef @mutable] @readonly = ...
+iterator.setElement(...)   (*// Error: @readonly(this) is not compatible with @mutable*)
+\end{lstlisting}
+
+The expression \code{this.list.head} has the type \code{A},
+which is declared \code{@mutable} in the concrete instantiation assigned to \code{iterator}.
+%which may or may not be mutable in a concrete instantiation of \code{IteratorOverList}.
+However, RI type rules demand that
+\code{this} must be mutable in \code{setElement} to allow assignment to \code{this.list.head},
+which in turn causes a type error where \code{setElement} is called on a \emph{readonly}
+iterator.
+
+
+\begin{comment}
+\begin{lstlisting}
+trait IteratorOverList[+A] {
+	var list: List[A]
+	def peek(): A = list.head
+}
+val iterator = new IteratorOverList[AnyRef @mutable] @readonly { var list = ... }
+\end{lstlisting}
+
+The concrete instantiation of \code{IteratorOverList} will have the following definition of \code{peek}
+(shown with an explicit receiver \code{this}):
+
+\begin{lstlisting}
+def peek(this: IteratorOverList[AnyRef @mutable] @readonly): AnyRef @mutable = this.list.head
+\end{lstlisting}
+
+Under definition~\ref{accesspath-ri-def}, this version of method \code{peek()} should fail
+to type-check because the type of \code{this.list.head} would be \emph{readonly},
+which is incompatible with \code{AnyRef @mutable}.
+Scala, however, would not consider this to be a type error because the original definition
+of \code{peek()} type-checks.
+One option is to allow this situation to type-check correctly,
+but at the cost of allowing strong \emph{readonly} guarantees to be broken
+where certain uses of generic types are involved.
+
+If we enforce the deep (transitive) guarantees of RI types even where generics are involved,
+we need to add some default restrictions on type parameters.
+Ideally, these guarantees would be modularly checkable and enforceable (for example,
+we shouldn't have to re-check the definition of \code{peek} everywhere
+\code{IteratorOverList} is extended).
+We plan to consider these choices in greater detail as work progresses.
+\end{comment}
+
+%We should note here that if we do want to
+One way to
+let the programmer express that an iterator cannot be modified, but its
+elements can,
+is to introduce 
+%we always have the option of introducing the equivalent
+the equivalent
+of C++'s \emph{const} type.
+Introducing a \emph{const} type that is distinct from \emph{readonly}
+would allow the programmer to clearly distinguish between
+transitive guarantees (\emph{readonly}) and non-transitive guarantees (\emph{const}).
+
+\begin{comment}
+Under the assumption that all types are shallow (nontransitive), this
+
+trait X {
+	// if T has a lower bound of X:
+	//   X mutable -> T anything
+	//   X polyread -> T readonly or polyread
+	//   X readonly -> T readonly
+	type T
+	val t: T
+}
+\end{comment}
+
+\section{Integrating RI Types with Scala}
+\label{scala-integration}
+
+Scala code uses language features that are not supported or not frequent in Java code,
+but nevertheless impact the design of an RI type system. These features include:
+\begin{itemize}
+	\item \emph{Unrestricted nesting of methods and classes.}
+		Methods may modify the local variables in enclosing methods.
+		
+	\item \emph{Frequent use of closures and lambda expressions.}
+		Scala encourages a functional programming style.
+		Functions that take other functions as parameters are ubiquious in the Scala standard library.
+		
+	\item \emph{Local type inference.} Classical data types are often inferred automatically
+		where type annotations do not exist. To keep the annotation burden managable,
+		RI types should be inferred also, ideally taking advantage of type inference and type checking
+		systems that already exist.
+	
+	\item \emph{Covariant types, contravariant types, structural types, abstract types, and
+		other type system features.}
+		The RI type system to interact with these features in a reasonable way.
+
+	%\item \emph{Trait composition and inheritance.}
+	%	Scala supports very flexible trait compositions.
+	%	Unlike Java, which only permits multiple inheritance of interfaces, Scala's traits
+	%	can contain defined methods and fields.
+	%	We would also like RI types to 
+
+\end{itemize}
+
+\subsection{Basic Annotations}
+\label{basic-annotations}
+
+I plan to implement RI types as annotations on ordinary data types.
+My goal is to allow any data type to also have an RI type,
+even if the data type is abstract.
+(Abstract data types have upper and lower type bounds rather than being
+constrained to a single data type. Where there are data type bounds, I also want to allow
+RI type bounds.)
+I begin with some examples of variable/field declarations and method signatures:
+
+\begin{lstlisting}
+val a: A @mutable
+val b: B @polyread
+val c: C @readonly
+def d(a: A @mutable, b: B @polyread, c: C @readonly): D @mutable
+def e(a: A @mutable, b: B @polyread, c: C @readonly): E @polyread
+def f(a: A @mutable, b: B @polyread, c: C @readonly): F @readonly
+\end{lstlisting}
+
+If RI annotations are allowed on any type expression, then
+some type-checking may have to occur when these declarations are encountered.
+For example, consider:
+\begin{lstlisting}
+class C {
+	type A = AnyRef @readonly
+	val a: A @mutable = ...
+}
+\end{lstlisting}
+The type \code{A} is declared \code{@readonly},
+but field \code{a} is declared to have type \code{A @mutable}.
+There are a few alternatives for interpreting the \code{@readonly}
+annotation in this example: 1) All references of type \code{A} must
+have RI types compatible with \code{@readonly}, in which case
+the expression \code{A @mutable} would produce a type error;
+2) References of type \code{A} are \code{@readonly} by default, but
+the RI type may be overridden in uses of \code{A}; or
+3) It is an error to use RI annotations in definitions of abstract types.
+Option (2) is the least restrictive, and the only option that does not
+require additional type checks.
+
+%For example, the type expression \mbox{\code{A @mutable}} only type-checks
+%if~\code{A} itself is mutable.
+%The type expression \mbox{\code{C @readonly}} always type-checks
+%because all RI types are compatible with \code{@readonly}.
+
+%This extra check prevents the removal of readonly constraints on types,
+%which we hypothesize will be important for supporting generic types
+%without breaking transitive guarantees (cf. section~\ref{generic-ri-types}).
+%The extra check is also necessary to preserve correctness when functions are
+%passed as parameters. For example, if the type \code{A} is a readonly-returning function,
+%then the expanded signature of method \code{d} is:
+%\begin{lstlisting}
+%def d(a: (() => T @readonly) @mutable, b: B @polyread, c: C @readonly): D @mutable
+%\end{lstlisting}
+%which clearly should not type-check because calling \code{a()}
+%from within \code{d} would otherwise discard the declared \code{@readonly} constraint
+%on \code{a}'s return type.
+
+For convenience,
+RI annotations may be placed directly on variables and fields:
+
+\begin{lstlisting}
+@mutable  val a: A     // same as:  val a: A @mutable
+@polyread val b: B     // same as:  val b: B @polyread
+@readonly val c: C     // same as:  val c: C @readonly
+\end{lstlisting}
+
+There must also be a way to express how a method modifies its enclosing scope(s),
+which include its receiver object (referenced through \code{this}).
+For example, let a method \code{g} modify a variable \code{v} that is local
+to an enclosing method \code{f}:
+\begin{lstlisting}
+def f() = {
+	var v = ...
+	def g() = {
+		v = ...
+	}
+}
+\end{lstlisting}
+
+Method \code{g} can be annotated as follows:
+\begin{lstlisting}
+def f() = {
+	var v = ...
+	@mutable(f) def g() = {
+		v = ...
+	}
+}
+\end{lstlisting}
+which means that \code{g} mutates a variable within the body of \code{f}.
+The parameter \code{f} within \code{@mutable(f)}
+may be understood as a parameter of \code{g} that references the outer environment \code{f}.
+%may be understood as a reference
+%to a closure of \code{f} that is implicitly passed to \code{g} whenever \code{g}
+%is called.
+
+Treating the parameter \code{f} as a reference, the assignment to \code{v}
+inside \code{g} is essentially an assignment to \code{f.v}.
+(Although there is no language mechanism for directly specifying the equivalent of
+the parameter \code{f} in a source program, the equivalent reference does exist
+and is manipulated by the compiler.)
+According to definition~\ref{accesspath-ri-def},
+the assignment to \code{f.v} is permitted where \code{f} is \emph{mutable}
+and \code{v} is not \emph{readonly}.
+%(Scala syntax prohibits using \code{f} explicitly in this way)
+%The assignment to \code{v} is therefore only permitted where
+%\code{f} is \code{@mutable}.
+
+Callers of \code{g} must have available a \emph{mutable} reference to a closure
+of method \code{f}.
+Such a reference is always available from within the body of \code{f}.
+
+If \code{f} is a class rather than a method, then the annotations are quite similar:
+\begin{lstlisting}
+class f {
+	var v = ...
+	@mutable(f) def g() = {
+		v = ...
+	}
+}
+\end{lstlisting}
+In this case, the parameter \code{f} is an alias of \code{this}.
+The assignment to \code{v} is therefore permitted where
+\code{f} (or \code{this}) is \code{@mutable}.
+Callers of \code{g} always have available a reference to an object of
+\mbox{\code{class f}}, which is merely the receiver object.
+Where the receiver reference is \emph{mutable},
+the call to \code{g} is permitted.
+
+%We expect that classes and traits can be handled identically
+%for the purposes of RI type integration.
+
+Classes and traits may also be nested within methods.
+If, for example, \code{f} was a method and \code{g} was a class,
+the same annotations can be used:
+\begin{lstlisting}
+def f() = {
+	var v = ...
+	@mutable(f) class g {
+		v = ...
+	}
+}
+\end{lstlisting}
+In this case, the annotation \code{@mutable(f)}
+means that the default constructor of \code{g} may mutate some variable
+in the closure of \code{f}.
+
+Nesting may occur to an arbitrary depth, and at each method every
+enclosing scope may have a different mutability.
+In the following example, \code{g} is mutable in its receiver and
+in \code{f}, and \code{h} is mutable in its receiver and
+in \code{C}.
+
+\begin{lstlisting}
+class C {
+	var v = ...
+	def f () = {
+		var w = ...
+		@mutable(f,C) def g () = {
+			v = ...
+			w = ...
+			class D {
+				var x = ...
+				@mutable(D,C) def h () = {
+					x = ...
+					v = ...
+				}
+			}
+		}
+	}
+}
+\end{lstlisting}
+
+%The \code{@polyread()} annotation may be used in the same places as \code{@mutable()}
+%to indicate that there are enclosing scopes that may be viewpoint-adapted
+%when the associated method is called.
+
+An alternative interpretation of these annotations is to assume that
+the annotation \code{@mutable(X)} for some enclosing scope name \code{X}
+means that all intermediate scopes between the annotation and \code{X}
+are mutable.
+In the foregoing example, \code{@mutable(f,C)} would be equivalent
+to \code{@mutable(C)}, and \code{@mutable(D,C)} would be equivalent
+to \code{@mutable(C)} and \code{@mutable(C,f,g,D)}.
+While this intrepretation may (in some cases) reduce the total number
+of annotation parameters the programmer must specify, it also reduces
+the precision available to the programmer.
+
+\subsection{Arguments to Enclosing-Scope Parameters}
+
+I address here the problem of finding the RI types of the
+outer-scope references discussed above.
+The RI type system must be able to handle 
+arbitrary nestings of methods and classes.
+%methods within methods, classes within classes, and
+%methods within classes, and classes within methods.
+
+
+For a call to a nested method,
+the references to enclosing methods' closures are immediately available.
+For example, consider a call to \code{h()} within \code{f} and \code{g}
+(outer scopes are designated \code{@mutable} to make them explicit
+in this example):
+
+\begin{lstlisting}
+@mutable(all) def f() = {
+	@mutable(f) def g() = {
+		@mutable(f,g) def h() = {
+		}
+		h()
+	}
+}
+\end{lstlisting}
+The argument to parameter \code{f} is available at the call site
+because it was passed as a parameter of \code{g},
+and the argument to parameter \code{g} is implicitly available from within the
+body of \code{g}.
+The argument to \code{f} at the call to \code{h()} has the same RI type
+as was declared on method \code{g}, or \code{@mutable(f)}.
+The argument to parameter \code{g} is always mutable, since a method is always allowed to mutate its local
+variables.
+This example would raise a type error if the parameter \code{f} on method \code{g}
+was instead \emph{readonly}.
+
+If \code{g} is a class instead of a method,
+then \code{h()} could be called from a location
+other than the body of \code{g}:
+\begin{lstlisting}
+@mutable(all) def f() = {
+	@mutable(f) class g() {
+		@mutable(f,g) def h() = {
+		}
+	}
+	val instance = new g()
+	instance.h()
+}
+\end{lstlisting}
+The argument to the parameter \code{@mutable(f)} on class \code{g}
+is implicitly available within the body of \code{f}.
+Since the call to \code{h()} does not necessarily occur within \code{f},
+an appropriate parameter is not necessarily available at the call site.
+Fortunately, like other class parameters, \code{f} is a field of \code{g},
+and it is this field that is implicitly passed to \code{h()}.
+Therefore, the call to \code{instance.h()} implicitly passes the
+arguments \code{instance.f} and \code{instance} for parameters
+\code{f} and \code{g}.
+A type error is raised if the types of \code{instance.f} and \code{instance}
+are not compatible with \code{f} and \code{g} respectively.
+
+\begin{comment}
+Therefore, for the purpose of type-checking the parameter \code{f}
+on method \code{h}, it is sufficient to make sure that
+the RI type of parameter \code{f} on method \code{h}
+is a supertype of the RI type of parameter \code{f} on class \code{g}.
+At the site of the call to \code{h}, the RI type of \code{instance}
+must be a subtype of the parameter \code{g} on method \code{h}.
+For example, the following code has two type errors:
+\begin{lstlisting}
+@mutable(all) def f() = {
+	@readonly(f) class g() {
+		@mutable(f,g) def h() = {  // error: mutable not a supertype of readonly
+		}
+	}
+	val instance: g @readonly = new g()
+	instance.h()   // error: readonly not a subtype of mutable
+}
+\end{lstlisting}
+\end{comment}
+
+
+%\subsection{Annotations and Extra Parameters}  %on parameters, fields, local variables, method definitions, and class definitions
+%\label{extra-parameters}
+
+\subsection{Defaults and Special Annotation Parameters}
+
+By default, a method is assumed to possibly mutate anything in any of its
+enclosing scopes. I introduce the special annotation parameter \code{all} to represent
+this default. Other special parameters include \code{none} to represent
+no mutation of enclosing scopes and \code{this} as an equivalent to the immediately
+enclosing class or trait.
+
+\begin{lstlisting}
+@mutable(all)        // may mutate anything (default)
+@mutable(none)       // does not mutate anything except local variables/parameters
+@mutable(X)          // mutable in class/trait/method X
+@mutable(this)       // mutable in innermost enclosing class/trait
+\end{lstlisting}
+
+The \code{X} in \code{@mutable(X)} may also be the name of a package.
+In this case, the annotation means that the method mutates
+something in the locality of package \code{X}.
+%something in the locality of that package.
+%the current global
+%instance of that package.
+
+The \code{@polyread()} annotation is also supported wherever \code{@mutable()}
+is supported. For example, the \code{@polyread(this)} annotation
+indicates that the associated method is viewpoint-adaptable in its receiver.
+
+The \code{@readonly()} annotation may not be necessary because anything
+that is not \emph{mutable} or \emph{polyread} should probably be assumed
+\emph{readonly}.
+
+\subsubsection{A Possible Extension to Handle I/O Effects}
+
+References to files and streams can be arguments to \code{@mutable()}.
+For example:
+
+\begin{lstlisting}
+@mutable(java.lang.System.out)    // may mutate standard output
+\end{lstlisting}
+I may more fully examine the possibilities as work progresses.
+
+\subsection{Closures}
+
+Closures require some special handling.
+When a closure is created, partially-applied parameters and references to outer scopes are bound.
+The act of creating a closure involves some loss of information
+because the caller of a closure does not necessarily know anything about which
+method the closure calls or which parameters have already been bound.
+
+Therefore, closure objects need to carry some information about
+their effects to avoid making the conservative assumption
+\code{@mutable(all)} for every closure call.
+
+Consider a version of method \code{f} that
+creates and calls a closure of \code{g}:
+\begin{lstlisting}
+def f() = {
+	var v = ...
+	@mutable(f) def g() = {
+		v = ...
+	}
+	val closure_g: (() => Unit) = g _
+	closure_g()
+}
+\end{lstlisting}
+
+
+Instances of the type \code{(() => Unit)} may be understood as objects with
+\code{apply()} methods. Since \code{apply} in this example calls \code{g()},
+\code{apply} should have the same effect as \code{g()}, or \code{@mutable(f)}.
+To make the effect annotation available to callers of the closure,
+I allow the function type itself to carry the effect annotation \code{@mutable(f)}.
+In the following listing,
+the closure creation and application inthe foregoing example are made explicit:
+%we add the effect annotation on the return type of \code{f}
+%and make explicit the creation of the closure object:
+\begin{lstlisting}
+def f() = {
+	var v = ...
+	@mutable(f) def g() = {
+		v = ...
+	}
+	val closure_g: (() => Unit) @mutable(f) = new (() => Unit) {
+		@mutable(f) def apply() = g()
+	}
+	closure_g.apply()
+}
+\end{lstlisting}
+
+Note that the parameterized annotation \code{@mutable()}
+has a different meaning from the unparameterized annotation \code{@mutable}.
+When used as a type annotation (instead of a method annotation),
+\code{@mutable(f)} means that if the referred-to object
+has an \code{apply} method, then that \code{apply} method will have
+an effect type compatible with \code{@mutable(f)}.
+
+It is possible to pass the closure reference to a location where
+the symbol \code{f} is not in scope.
+It is also possible for the closure to bind partially-applied parameters,
+which are not visible to callers.
+These are issues that do not affect ordinary method applications.
+I plan to further investigate RI annotation systems for closures.
+
+%how to handle the RI types of closures that
+%bind scopes and parameters that are not visible to callers.
+
+
+\begin{comment}
+We must make sure that where \code{f} goes out of scope,
+the \code{@mutable(f)} annotation is conservatively adjusted .
+For example, if method \code{f} above is enclosed by another method \code{e}
+that returns the same closure:
+\begin{lstlisting}
+def e(): (() => Unit) @mutable(hidden) = {
+	def f(): (() => Unit) @mutable(f) = {
+		var v = ...
+		@mutable(f) def g() = {
+			v = ...
+		}
+		return g _
+	}
+	return f()
+}
+\end{lstlisting}
+The return type of \code{e} has the effect \code{@mutable(e)}
+instead of \code{@mutable(f)}. The symbol \code{f} goes out of scope outside of \code{e},
+so we substitute the enclosing scope \code{e} for \code{f}.
+We must therefore, take \code{@mutable(e)} to mean that the closure's \code{apply}
+method could mutate anything within \code{e} or a scope within \code{e}.
+This approach should give the same precision for calling a method directly
+as creating a closure and immediately calling it.
+
+If a closure performs a partial application of parameters,
+and some of those parameters are \code{@mutable},
+then we could use the effect annotation \code{@mutable(partials)}.
+
+Generally, whenever a closure is passed as an argument or otherwise leaves
+its current scope, its effect annotation may need to be adjusted
+to make sense within the new scope.
+If we define \mbox{\code{@mutable(partials)}} to 
+
+The \code{@polyread()} annotation could also be used anywhere a \code{@mutable()}
+annotation is allowed. It is not clear to us whether a \code{@readonly()}
+annotation would be useful, since for any closure that declares
+a \mbox{\code{@mutable()}} or \code{@polyread()} annotation, anything that is not
+mutable or polyread is assumed to be readonly.
+If no annotations are specified or inferred, then we assume \code{@mutable(all)}.
+
+Alternatively, we could use simple \code{@pure} / \code{@impure} annotations
+on closures, where \code{@impure} would be used wherever the closure
+is mutable in any scope or any partially-applied parameter.
+This approach is less precise for closures than for direct method applications.
+
+\end{comment}
+
+
+%closures
+%1st-class functions (closures) as parameters
+
+%alternatives
+
+%io
+
+%Handling traits
+
+\subsection{Purity}
+
+If all parameters to a method are \emph{readonly} or \emph{polyread},
+then the method is \emph{pure} or \emph{side-effect free}.
+Parameters include those specified by annotations on the method,
+so purity requires that the method be \emph{readonly} or \emph{polyread}
+in all of its enclosing scopes and all packages.
+Since memory side effects are only permitted through \emph{mutable} references,
+and since there is no way to obtain a mutable reference from
+a \emph{readonly} or \emph{polyread} parameter, the foregoing is a
+sufficient condition for method purity.
+
+\subsection{Local Type Inference}
+
+One good reason to perform inference on Reference Immutability (RI) types is that inference
+reduces the annotation burden -- the programmer does not need to
+explicitly declare RI types where they can be inferred from the context.
+One approach to RI inference is to build an inference algorithm that runs
+separately from the type checker -- this is the approach taken by ReIm~\cite{reim}.
+ReIm's inference algorithm is guaranteed to find a maximal typing.
+The disadvantage of this approach is that certain complexities
+in the Scala type system (such as covariance, contravariance, and trait linearization)
+will increase the complexity of type inference and checking.
+Another approach is to rely on Scala's built-in type inference mechanism,
+which is the approach attempted for Efftp~\cite{efftp}.
+The potential advantage of this second approach is that many complexities
+in Scala can be handled automatically.
+One disadvantage of this approach is that more annotations may be required to
+achieve a maximal typing -- but on the other hand, RI types would behave
+similarly to other types.\footnote{I should note here that Efftp's difficulties are
+likely due to the attempt to use Scala's type inference mechanisms to
+propagate arbitrary effect types, which do not necessarily
+behave like standard data types. RI types, on the other hand, are merely constraints
+on references, and so can be propagated very much like standard data types.}
+
+A few modifications of Scala's type inference system are required to implement
+RI types.
+First, the inference must be aware of the RI type hierarchy,
+specifically that \code{mutable} is a subtype of \code{polyread} and
+\code{polyread} is a subtype of \code{readonly}.
+Each standard data type also has an RI type.
+If no RI type has been declared or can be inferred, the RI type defaults to \code{mutable}.
+Whenever the type inferencer performs a least-upper-bound (LUB) or
+greatest-lower-bound (GLB) operation on a data type, a LUB or GLB is also performed
+on the RI type.
+
+A type is considered equal to another type if and only if
+the data types are equal \emph{and} the RI types are equal
+(and similarly for subtype relationships).
+I initially planned on ignoring the RI type when computing type equality
+and subtyping relationships to ensure that adding RI annotations would never change
+the program semantics. However, ignoring the RI type would also mean that I forfeit
+use of Scala's built-in mechanisms for type-checking.
+(Type checking for a language like Scala is non-trivial due to covariance,
+contravariance, abstract types, structural types, and other features.)
+My current approach is to allow the Scala type-checker to consider
+RI types. In the case of unannotated code, all RI types are defaulted to
+\code{mutable}, resulting in no change to program semantics.
+If annotations are added, then those annotations will be taken into account
+when subtyping relationships are evaluated.
+Changed subtyping relationships could cause Scala's inference engine
+to make different decisions about which overloaded methods or which
+implicit functions most closely match a given context.
+However, these changes should not be problematic in general;
+one of the following situations must apply for any given decision about overloading choices:
+1) adding annotations results in no change to the choice of overload;
+2) adding annotations results in the previous best choice to become non-best,
+	resulting in a different selection;
+3) adding annotations results in the previous best choice to be rejected due
+to incompatible RI types, resulting in a different selection; or
+4) adding annotations results in all overloads to be rejected due to incompatible RI types,
+	resulting in an error.
+%We assert that all of these situations are correct in theory,
+In theory, the selection of a different overloaded method should not change
+a program's (abstract) meaning,
+%In theory, all of these cases should be type-correct and preserving of program meaning,
+although in practice the process of adding annotations to existing software
+may break the code in unexpected ways if
+the implementations of different overloads produce inconsistent results.
+%it depends on overloads being selected in a particular way,
+%overloads or implicits have inconsistent implementations.
+%the code does not carefully manage overloads or implicits.
+I expect that the \emph{mutable} default will help in practice,
+since unannotated overloads (all \emph{mutable} parameters) will tend not to match annotated code
+(which is likely to use at least a few \emph{readonly} or \emph{polyread} variables),
+generating a match failure to remind programmers to re-examine the implicits or overloads used.
+
+\subsubsection{Where Default Type Inference and Checking Must Be Overridden}
+
+%then one of the following situations
+%will apply whenever Scala's inference engine makes a decision
+%If annotations are present, it is possible that the compiler may make different
+%selections of implicit functions or overloaded methods if the preferred
+%selection (before annotation) is disallowed due to incompatible RI types.
+%Disallowing method selections with incompatible RI types is the behaviour
+%we want; the only question is whether we allow alternative methods to be
+%selected silently, or do we force an error?
+
+RI types are like ordinary types in the sense that they represent constraints
+on the usage of fields and local variables.
+Their similarity to ordinary types is what makes them reasonable candidates for
+integration with Scala's default type inference mechanisms.
+However, exceptions to the default operation of the inference system must be made
+to account for the cases where RI types differ semantically from ordinary types.
+These cases include viewpoint adaptation, the transitive \emph{readonly} guarantee, and
+checking the extra parameters discussed in section~\ref{basic-annotations}.
+I note that (unlike Efftp~\cite{efftp}) none of the changes we propose to make involves
+transforming the abstract syntax tree or otherwise changing the default order
+in which types are inferred.
+
+%are exceptions to ordinary type rules, so some exceptions to the default
+%type inference mechanisms must be made.
+
+The first exception to default inference mechanisms is modification of the returned type
+at call sites.
+Where a method application would ordinarily have RI type \emph{polyread},
+rule definition~\ref{viewadapt-def} must be applied to determine the correct RI type.
+
+The second exception is the modification of RI types along access paths.
+Whenever the type of a field selection is determined,
+rule definition~\ref{accesspath-ri-def} must be applied to determine the
+correct RI type.
+
+The third exception is the modification of the RI type of
+each standalone identifier use and
+the RI type of the first identifier in every access path.
+For correct RI type checking, each such identifier (except for local variables,
+which are accessed through the local frame) must be understood as
+being accessed through some path leading from an extra parameter (section~\ref{basic-annotations}).
+Access path rules apply here, so an identifier that refers to a variable in
+a \emph{readonly} scope must be \emph{readonly}.
+
+The fourth exception is the checking of the RI types of the extra parameters at call sites and
+object instantiation sites. Declared parameters are checked automatically,
+but extra checks of the RI type-correctness of the receiver object and closure references
+must be performed.
+%Because it is possible for extra parameters to have the type \emph{polyread},
+%viewpoint adaptation must take the extra parameters into account.
+
+One area where an exception does \emph{not} have to be made is support for arrays or
+multidimensional arrays.
+Unlike Java, Scala has substantial built-in support for generic types,
+and arrays are implemented as generic types.
+%If we are careful about how RI types are defined, then 
+%we should get RI typing on arrays for free.
+
+%Not overriding type qualifiers?
+%Readonly on classes?
+
+\begin{comment}
+\subsubsection{Pluggable Type Systems}
+
+%not enough examples of truly pluggable problems!
+% generic plug-in architecture a waste of time
+
+One open question is how a general plug-in interface
+for a type inference/checking system should work.
+My experience, however, leads me to believe that attempting to implement
+a general interface or framework without several well-motivated concrete
+examples of expected usage generally leads to poor design and engineering decisions.
+Therefore, I plan to implement the reference immutability system as a fork
+of the Scala compiler, which is the fastest way to develop the system in the short term.
+I expect that this work will yield some observations
+that will help answer the question of what kinds of features a pluggable type-system
+interface should expose,
+but I leave the implementation of such an interface for future work.
+\end{comment}
+
+%Efftp~\cite{efftp} is built on one possible interface design~\cite{lightweight-polymorphic-effects},
+%but the evidence regarding the utility of that design is far from conclusive.
+%until we can answer the question of what kinds of features
+%we want such plug-ins to implement and what 
+
+
+%\input{framedef_examples_content}
+
+%Purity discussion
+%This is a stronger definition of prestate**? than used by Rountev~\cite{precise-sideeffectfree-java},
+
+%orthogonal conerns:
+% definition of purity, and its effect on precision.
+% discussion of freshness and locality, and relationships with reference immutability.
+% local vs. global inference (differences in intent)
+% anything said about verification objectives or concurrency objectives?
+
+\section{Evaluation and Plan for Completion}
+\label{evaluation}
+
+%evaluation
+
+%implementation in Dotty
+
+I initially plan to implement RI types for the Dotty~\cite{dotty} compiler,
+which is an experimental new front-end for Scala.
+If time permits, I may also attempt to implement a plug-in for
+the production Scala compiler, which would allow RI types to be used
+in production code.
+
+%sanity check
+
+I plan to evaluate the RI types implementation
+by running Dotty on a number of Scala projects,
+which may include the Scala compiler, the Dotty compiler,
+the Scala standard library, the PSP collections library~\cite{psp-page},
+and others.
+Initially, I will run a sanity check;
+I want to make sure that, in the absence of annotations,
+each of these projects type-checks cleanly.
+
+Starting with code that type-checks cleanly, I plan to incrementally add RI annotations
+to some projects.
+I expect to answer the following questions, using concrete examples of
+RI-annotated code to justify the answers:
+\begin{itemize}
+	\item Does the proposed RI type system allow for easy incremental annotation
+	of existing code, or are there cases where large numbers of annotations must
+	be added at the same time?
+	\item Can the proposed RI type system achieve near-maximal RI typings
+	with few annotations,
+	or does most code have to be very heavily annotated to achieve near-maximal typings?
+	\item Is the proposed RI type system precise enough to express method purity where purity exists,
+	or is the RI system too imprecise to express method purity in some instances?
+\end{itemize}
+
+%Scala compiler
+%Scala standard library
+%PSP collections library
+
+The RI type implementation will have some compile-time overhead, but
+that overhead should be negligible.
+Nevertheless, I plan to run some tests to determine how much extra time
+and memory is consumed by the compiler when RI types are enabled.
+
+The RI type system includes local inference, but
+a global inference system
+(such as ReImInfer~\cite{reim})
+is left as a possibility for future work.
+%Implementation of an RI inference system is a possibility for future work.
+
+\section{Related Work}
+\label{related-work}
+
+Key related works include Javari, ReIm, JPure, and Efftp.
+Also related are ownership types, type-and-effect systems,
+other immutability type systems, and purity inference systems.
+
+% BIG related works section!
+
+\subsection{Javari}
+
+Javari~\cite{javari} is an extension of Java that supports reference immutability annotations.
+The basic annotations supported by Javari are similar to mine, except that
+I do not permit the \code{mutable} annotation to make an exception to
+\emph{readonly} guarantees,
+and I use the term \code{polyread} in place of Javari's \code{romaybe}.
+I also have slightly different rules for RI typing along access paths --
+notably, \emph{mutable} field accesses through \emph{readonly}
+references are \emph{readonly} in my rules where Javari types them as \emph{mutable}.
+Javari has features to help programmers incrementally annotate large programs --
+Javari allows references to be cast to different RI types,
+and checks the correctness of potentially unsafe assignments at runtime.
+Javari also clarifies the relationship between \emph{assignability},
+which involves permissions to write to a single field, and
+reference immutability, which involves transitive permissions to
+write to entire objects.
+
+\subsection{ReIm and ReImInfer}
+
+ReIm~\cite{reim} is another reference immutability system for Java that
+was designed to use reference immutability to infer method \emph{purity}.
+The motivation for ReIm and its associated inference system, ReImInfer,
+was to determine method purity to assist Universe Type inference (see section~\ref{universe-types}).
+The access path type rules are the same as Javari, except that
+fields are never permitted to be \emph{mutable}.
+In my work, I allow fields to be mutable to create a logical consistency
+between fields and local variables, but I redefine access path typing rules
+to prevent \emph{mutable} fields from breaking \emph{readonly} guarantees.
+I also have different rules for viewpoint adaptation of methods.
+Where ReIm attempts to adapt methods based on assignment context,
+I adapt methods based on argument types.
+My approach is designed to integrate with Scala's local type inference,
+which does not provide a method application's assignment context prior to the time
+the method application's return type must be determined.
+
+ReImInfer performs a global inference of reference immutability.
+ReImInfer infers a best (maximal) reference immutability typing for any program.
+However, ReImInfer does not support generic types~--
+since the best type for each reference is chosen independently of
+other references, the resulting typing is not guaranteed to be consistent
+if generic RI types are involved.
+
+\subsection{JPure}
+
+JPure~\cite{jpure} is a purity annotation and inference system for Java.
+The annotations in JPure as designed to be modularly checkable.
+The key idea behind JPure is that pure methods are allowed to
+modify \emph{fresh} objects, or objects that are not visible from the method's
+\emph{prestate}.
+By definition, objects are fresh when they are created,
+and remain fresh even when returned from pure methods.
+The notion of \emph{freshness} is extended to include
+an object's \emph{locality}, which includes all objects transitively reachable through \emph{local}
+fields.
+
+JPure's semantics are nearly identical to reference immutability semantics.
+JPure's \emph{local} and \emph{fresh} are both equivalent to \emph{mutable}.
+The opposite concepts, \emph{nonlocal} and \emph{stale}, are equivalent to \emph{readonly}.
+Where a method in JPure is labelled \emph{pure}, it has the same meaning
+as purity under reference immutability~-- all parameters, including the receiver reference,
+are \emph{readonly}. Where a method is labelled \emph{local},
+it may take \emph{local} (\emph{mutable}) parameters, but other parameters are \emph{readonly} by default.
+JPure calls \emph{local} methods \emph{pure} because they do not modify non-\emph{fresh}
+state. I do not include such methods in my definition of \emph{purity},
+since they do in fact modify their own prestates~-- I consider the question of
+whether a method can modify the prestates of its callers to be a somewhat different
+issue.
+
+\begin{comment}
+Surprisingly, I find that the guarantees offered by JPure's annotations
+are nearly identical to ReIm's guarantees.
+%A straightforward transformation exists to convert JPure-annotated programs into
+%ReIm-annotated programs.
+A \emph{fresh} reference in JPure is a \emph{mutable} reference in ReIm,
+and conversely a \emph{stale} reference in JPure is a \emph{readonly} reference in ReIm.
+\emph{Local} fields are \emph{polyread} fields, and \emph{local} parameters are \emph{mutable} parameters.
+Assignment of a \emph{stale} reference to a \emph{local} field is not
+permitted, nor can a \emph{stale} reference be returned from a \emph{fresh} method,
+just as \emph{readonly} reference is not compatible with \emph{mutable}.
+\end{comment}
+
+\subsection{Efftp}
+
+Efftp\footnote{The name ``efftp'' is not given in the paper, but it is the
+implementation's project name in the \code{github} source code repository.}~\cite{efftp,rytz-thesis}
+is a type system extension for Scala that can express JPure-like notions
+of freshness, locality, and purity.
+The basic annotations supported by Efftp include
+\code{@mod()}, which indicates the parameters whose localities a method may modify;
+\code{@loc()}, which indicates the localities a method may return;
+\code{@assign()}, which indicates the localities may be aliased by a method;
+\code{@local}, which may be applied to fields and parameters as in JPure;
+and \code{@pure}, which indicates that a method does not have side effects.
+Efftp is designed to be modularly checkable (like JPure) and flow-insensitive (unlike JPure).
+Efftp is built on a generalized effect-typing framework~\cite{lightweight-polymorphic-effects,rytz-thesis}.
+
+Efftp's notion of \emph{freshness} is more general than JPure's because
+Efftp can express that a returned reference is fresh if the arguments to
+certain parameters are fresh (\emph{conditional freshness}).
+The proposed RI type system uses \emph{polyread} to achieve a similar result:
+a \emph{polyread} return type is considered \emph{mutable} (\emph{fresh}) if all \emph{polyread} parameters
+are given \emph{mutable} arguments.
+However, Efftp's annotation system allows effect annotations to be placed
+on a method's return type, which complicates interactions with Scala's
+type inference system.
+Effects in general are descriptions of behaviours of blocks of code,
+not constraints on the uses of individual references or objects.
+In my view, the former are properly expressed as annotations on methods or code blocks,
+while the latter can be properly expressed as annotations on types, variables, or fields.
+
+\subsection{Ownership Types}
+
+Reference immutability has its roots in Ownership Type systems~\cite{ownership-types}.
+The original ownership types system by Clarke et al.~\cite{ownership-types-1998}
+proposed that each object is \emph{owned} (or \emph{contained}) by another object, and that
+each object is only permitted to contain references to: 1) its owner,
+2) other objects with the same owner, or 3) other objects \emph{outside} its owner
+(where \emph{outside} is the inverse of the \emph{inside} relation, which is the
+transitive, reflexive closure of the owned-by relation~\cite{ownership-types}).
+Adherence to these rules is called the \emph{owners-as-dominators} discipline.
+Types are used to define the permitted ownership relationships, enabling the validity
+of these relationships to be statically checked.
+Unfortunately, \emph{owners-as-dominators} is too inflexible to allow common programming patterns.
+For example, consider creating an iterator over a list that owns its data elements:
+if the iterator is \emph{inside} the list, then no objects \emph{outside} the list could
+access the iterator; if the iterator is \emph{outside}, then the iterator could not
+access the data.
+There have been a number of possibilities proposed to improve the flexibility of
+ownership systems, including temporary relaxation of restrictions for stack-based
+variables~\cite{ownership-disjoint}, granting temporary permissions for methods to
+access objects accessible to their callers~\cite{jot2000,external-uniqueness},
+allowing exceptions for \emph{readonly} references (the \emph{owners-as-modifiers} discipline)~\cite{universes},
+allowing programmers to flexibly declare ownership structures (\emph{ownership domains})~\cite{ownership-domains},
+\emph{multiple ownership}~\cite{multiple-ownership}, and \emph{owners-as-ombudsmen}~\cite{owners-as-ombudsmen}.
+
+\subsubsection{Universe Types}
+\label{universe-types}
+
+Originally inspired by Flexible Alias Protection~\cite{flexible-alias},
+the Universes system~\cite{universes} provides lightweight annotations to express
+the \emph{owners-as-modifiers} discipline for a subset of Java.
+Unlike \emph{owners-as-dominators}, which restricts \emph{where} references
+can point, \emph{owners-as-modifiers} restricts \emph{how} references can be used.
+Enforcement of the \emph{owners-as-modifiers} discipline only requires that references
+passed across ownership boundaries are declared \emph{readonly}.
+The Generic Universe Types system extends Universes to support generic types~\cite{generic-universe-types}.
+
+\subsubsection{Ownership Types for Region-based Memory Management and Parallelism}
+
+Ownership types can be used for region-based memory management~\cite{ownership-regions}.
+In region-based systems, objects are owned by named \emph{regions} rather than other objects.
+Deterministic Parallel Java (DPJ)~\cite{deterministic-parallelism} uses regions to partition the heap, and
+relies on method annotations to determine which regions are affected by the execution of the method.
+If two methods operate on disjoint regions, then they can be safely executed in parallel.
+In addition to verifying the disjointness of method effects, DPJ performs static checks
+to ensure that annotations on methods soundly describe the actual effects generated by
+those methods.
+
+SafeJava~\cite{safejava} uses region-based memory management to support real-time programming.
+Every object is allocated in a \emph{region}, and when the region is deleted,
+all objects it contains are also deleted (avoiding the overhead of garbage collection).
+SaveJava uses a region-based effect typing system to statically ensure that
+deletion of regions is safe~-- that is, that no accesses to objects in deleted regions can occur.
+SafeJava implements a relaxed owners-as-dominators system: the owner of an object can be changed
+if there is a unique reference to that object, and inner classes can access their enclosing classes
+even if their owners are different.
+
+Reference immutability by itself does not provide strong enough guarantees
+to support region-based memory management or automatic parallelization.
+In particular, a \emph{readonly} reference does not prevent \emph{mutable}
+references to the same object, or guarantee that the \emph{readonly} reference is unique.
+The former guarantee is \emph{object immutability}, which is supported by other immutability systems
+(section~\ref{other-immutability-systems}).
+\emph{Fractional permissions}~\cite{fractional-permissions} are one way of providing the latter guarantee~--
+fractional permissions allow copies of a reference to be distributed while allowing
+the uniqueness of the original reference to be recovered later.
+
+
+\begin{comment}
+\subsection{Acyclic Region Type System (ARTS)}
+
+Lu and Potter~\cite{} created the
+Acyclic Region Type System (ARTS) to statically detect and prevent
+unwanted cycles in object reachability graphs.
+%, observe that 
+
+\end{comment}
+
+\subsection{Type-and-Effect Systems}
+
+Some work has been done to define general frameworks for extending type systems
+to support effect annotations. The aim of these frameworks is to reduce the
+time and effort required to develop type systems to handle specific effects.
+Marino and Millstein~\cite{generic-type-and-effect} propose a framework that
+supports the notion of ``effects as privilege checking.''
+To implement a specific effect system, Marino and Millstein's framework must be
+given a description of a \emph{privilege discipline} that meets monotonicity requirements.
+Provided the given privilege discipline meets monotonicity requirements,
+the resulting effect system is guaranteed to be sound.
+Rytz et al.~\cite{lightweight-polymorphic-effects,rytz-thesis} created a
+flow-insensitive, polymorphic, modularly-checkable type system extension
+for Scala. Rytz et al.'s work builds on Marino and Millstein's theoretical framework,
+but adds support for polymorphic effects and modularly-checkable annotations.
+Schwerter et al.~\cite{gradual-effect-systems} extend Marino and Millstein's framework
+with a notion of \emph{unknown effects} to soundly support the gradual addition of effect
+annotations to large programs.
+
+%type-and-effect-systems
+
+\subsection{Other Immutability Systems}
+\label{other-immutability-systems}
+
+Immutability Generic Java~(IGJ)~\cite{igj}
+supports reference immutability, object immutability, and \emph{class immutability},
+which guarantees that all instances of an immutable class are also immutable.
+References in IGJ are \emph{readonly}, \emph{mutable}, or \emph{immutable}.
+\emph{Immutable} references can only refer to immutable objects,
+\emph{mutable} references can only refer to mutable objects,
+and \emph{readonly} references can refer to any object.
+By necessity, mutation of immutable objects is allowed during construction.
+
+OIGJ~\cite{oigj} extends IGJ by including ownership annotations
+and a \emph{raw} reference type.
+OIGJ allows immutable objects to remain mutable (``raw'') for some time after construction,
+but become immutable (``cooked'') later, permitting (for example) the construction of immutable circular lists.
+OIGJ's ownership system supports the extended cooking phase --
+an object is cooked when its owner is cooked.
+
+\mbox{Joe\textsubscript{3}}~\cite{joe3} supports reference, object, and class immutability, and
+also addresses certain criticisms~\cite{boyland-readonly} of reference immutability.
+In particular, \mbox{Joe\textsubscript{3}} can express that a method parameter
+is not \emph{captured} by its method, that a \emph{readonly} reference is unique
+(and therefore refers to an immutable object), or that a unique reference is
+temporarily duplicated, but becomes unique again at a later time (\emph{fractional permissions}).
+These features can prevent \emph{observational exposure} (which allows state changes
+to be observed through \emph{readonly} references).
+
+
+\subsection{Other Inference Systems}
+
+Sălcianu and Rinard~\cite{purity-effect-java} created a side-effect analysis that
+detects method purity, \emph{readonly} parameters, and \emph{safe} parameters.
+Although my work is focussed on local type inference rather than whole-program analysis,
+Sălcianu and Rinard's definitions of method \emph{purity} and \emph{readonly} parameters
+are the same as mine and ReIm's.
+% maximally unaliased arguments
+Sălcianu and Rinard's analysis assumes that the parameters of any given method
+are maximally unaliased.
+The maximally-unaliased assumption allows compositionality;
+a single parameterized result is generated for each method analysed.
+Aliasing relationships among parameters, if they exist, are computed at
+method call sites.
+%\emph{safe} parameters
+A method parameter is \emph{safe} if the method does not mutate the locality of
+that parameter (the parameter is \emph{readonly}) and the method
+does not create any new access paths that allow the parameter's locality
+to be seen from the method's prestate.
+It may be possible to extend the RI type system to include notions of \emph{safety}
+in addition to mutability.
+
+Kneuss et al.~\cite{effect-analysis-callbacks} build on Sălcianu and Rinard's work
+to create a side-effect and purity analysis for Scala.
+Kneuss et al.'s inference system performs a flow-sensitive analysis and
+provides support for first-class function parameters (used for callbacks).
+The system infers read- and write-effects from the bytecode generated
+by the Scala compiler.
+Like Sălcianu and Rinard's system, Kneuss et al.'s system performs whole-program
+(rather than local) inference.
+
+%All the stuff that's really related.
+
+%Controlling effects:
+%RI, Immutability in general
+%Fractional permissions
+%Inferring effects?
+
+%Verification:
+%Universe types
+%Separation Logic
+
+%Ownership
+
+%Inferring Aliasing relationships
+%Controlling
+
+\section{Conclusion}
+\label{conclusion}
+
+Reference Immutability (RI) types allow programmers to provide deep
+or transitive guarantees that no writes will be performed on objects
+reached through certain references.
+I plan to implement RI types as an extension to the Scala type system.
+Unlike existing type-and-effect systems for Scala, my approach handles RI types
+as much as possible like ordinary data types.
+There are some details of the RI implementation that still need to be resolved,
+particularly with respect to generic types and the types of closure references.
+A key concern is that the design of the RI system always protect the
+transitive nature of \emph{readonly} guarantees without placing too many
+unnecessary constraints on the programmer.
+%However, I am confident that reasonable solutions to the RI system design
+%do exist.
+
+
+%\bibliographystyle{alpha}
+%\bibliographystyle{plain}
+\bibliographystyle{abbrv}
+\bibliography{../references}
+
+\end{document}

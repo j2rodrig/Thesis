@@ -1,0 +1,287 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{alltt}
+\usepackage{amsmath}
+\usepackage[greek,english]{babel}
+%\usepackage{booktabs}
+%\usepackage{cite}
+%\usepackage{color}
+\usepackage{fixltx2e}
+\usepackage[T1]{fontenc}
+%\usepackage{fullpage}
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+%\usepackage{mathtools}
+\usepackage{mdwlist}
+%\usepackage{needspace}
+\usepackage{url}
+\usepackage{verbatim}
+\usepackage{xspace}
+
+% Fonts and symbols
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage[scaled=.65]{beramono}
+\usepackage{courier}
+\usepackage{times}
+
+\newenvironment{absolutelynopagebreak}
+  {\par\nobreak\vfill\penalty0\vfilneg
+   \vtop\bgroup}
+  {\par\xdef\tpd{\the\prevdepth}\egroup
+   \prevdepth=\tpd}
+
+\newcommand{\greekmu}{\greektext m\latintext}
+
+\newcommand{\tab}[0]{\hspace{0.4cm}}
+
+\renewcommand{\ttdefault}{txtt}
+
+\lstset{
+	basicstyle=\footnotesize\ttfamily,
+	tabsize=4,
+	extendedchars=true,
+	breaklines=true,
+	escapeinside={(*}{*)},
+	frame=l,  % trbl for single-line frames, TRBL for double-line frames
+	xleftmargin=\parindent
+}
+
+\newcommand{\code}[1]{\lstinline$#1$}
+
+
+
+\begin{document}
+
+\section{The Lifting Transformation}
+
+\label{framedef_examples}
+
+Nested definitions are lifted to the top level to simplify the analysis.
+All references to enclosing scopes are passed explicitly after the lifting operation,
+allowing us to retain a simple definition of purity: if all parameters of
+a function are immutable, then the function is pure.
+
+The required elements of the transformation are the following:
+
+\begin{itemize}
+	
+	\item [\mbox{\small DEFINITIONS}] For each class and function definition, add one parameter for each enclosing scope,
+		up to and including the nearest enclosing class or (if there is no enclosing class) the package root.
+		For definitions immediately enclosed by a class, the only extra parameter is the receiver (\code{this}).
+		
+	\item [\mbox{\small APPLICATIONS}] For each function application or constructor invocation,
+		add additional parameters as necessary
+		to match the class or function definition.
+		If the applied function or constructor is defined inside the local scope, the special object \code{myframe}
+		is passed. The \code{myframe} object represents the stack frame of the current function.
+		Through the \code{myframe} reference, inner definitions are able to observe and modify
+		local variables and parameters.
+		
+	\item [\mbox{\small IDENTIFIERS}] For the first identifier on each access path, substitute an equivalent
+		access path prefix that starts with a local parameter or local variable.
+	
+	\item [\mbox{\small CLOSURES}] Partial evaluations produce closure objects. Each closure object must contain
+		a field for every applied parameter, including extra parameters.
+	
+\end{itemize}
+
+\subsection{Examples}
+
+\subsubsection{Definition transformation}
+
+To illustrate the lifting transformation, we provide some examples.
+The following Scala code contains nested functions, classes, and packages:
+
+\begin{lstlisting}
+package P {
+	package Q {
+		class C () {
+			def F () = {
+				class D () {
+					def G () = {
+						def H () = {
+						}
+					}
+				}
+			}
+		}
+	}
+}
+\end{lstlisting}
+
+The liftings of \code{F} and \code{G} are straightforward.
+The receiver object \code{this} is passed as a parameter,
+giving the following new signatures:
+
+\begin{lstlisting}
+def F (this : C)
+def G (this : D)
+\end{lstlisting}
+
+
+The lifting of \code{H} requires two parameters, one for \code{this}
+and one for the frame of the enclosing method \code{G}.
+The frame parameter \code{enclG} does not have a programmer-accessible type,
+but since the runtime system must have some memory-based
+representation of the frame of \code{G}, the type nevertheless exists.
+For the purpose of example, we give \code{enclG}'s type the name \code{FrameG}:
+
+\begin{lstlisting}
+def H (enclG : FrameG, this : D)
+\end{lstlisting}
+
+Classes \code{D} and \code{C} must also be given parameters for enclosing scopes.
+Class \code{D} requires parameters for the frame of \code{F} and
+the enclosing class \code{C}.
+We use the name \code{FrameF} to denote the type of the frames of \code{F}.
+Class \code{C} does not have any enclosing classes, but it does have enclosing
+packages.
+We give \code{C} a parameter for each enclosing package: for package \code{P},
+\code{enclP}, and for \code{Q}, \code{enclQ}.
+We must also include a parameter for the root package.
+The \code{packageRoot} parameter provides an access path to packages other than \code{P} or \code{Q}.
+
+\begin{lstlisting}
+class D (enclF : FrameF, enclC : C)
+class C (enclQ : Q, enclP : P, packageRoot : Root)
+\end{lstlisting}
+
+
+\subsubsection{Application and identifier transformation}
+
+Calls to \code{F} and \code{G} (defined above) must include the receiver object as a parameter.
+For example, \code{c.F()} becomes \code{c.F(c)}.
+Note that the transformed expression is still qualified by \code{c}
+because the correct function must be called even if \code{F} is overridden in a subclass of C.
+
+A call to \code{H} must additionally include a parameter of type \code{FrameG}.
+Since \code{H} is only visible inside of \code{G}, there is always an object of
+type \code{FrameG} available;
+from inside an inner definition, the parameter \code{enclG}, and from
+the body of \code{G} itself, the special object \code{myframe}.
+
+Similarly, the expression \code{new D()} is expanded to \code{new D(myself, this)}
+from within the body of \code{F} and \code{new D(enclF, enclC)}
+from within the body of \code{D}.
+
+If a function call or object construction requires references to objects
+that are not immediately available, an identifier transformation must take place to
+find an access path leading to the required object.
+
+Identifier transformations are required wherever an identifier refers to an object
+in an outer scope.
+%Identifier transformations involve searching through parameters in enclosing
+%definitions to find 
+For example, to transform the expression \code{new C()} from within the body of
+\code{D}, we must find access paths to the package references required by \code{C}.
+%we must perform a compile-time search through the enclosing frame references
+%to find the necessary package references.
+The shortest paths to the necessary references result in the transformed
+expression:
+\begin{lstlisting}
+new C(enclC.enclQ, enclC.enclP, enclC.packageRoot)
+\end{lstlisting}
+Other longer paths are possible from within \code{D}, e.g., \code{enclF.this.enclQ}.
+It is not clear whether there could be any benefit from using a non-shortest access path.
+
+\subsubsection{Closure transformation}
+
+Let us redefine function \code{G} to create and call a closure of \code{H}:
+
+\begin{lstlisting}
+def G (): (() => Unit) = {   (*// return type is a 0-parameter function*)
+	def H () = {
+	}
+	val h = H _      (*// underscore means partial evaluation*)
+	h ()
+}
+\end{lstlisting}
+
+The transformed signature of \code{H} includes the parameters
+\code{enclG : FrameG} and \code{this : D}.
+These parameters must be captured by the closure object at the site
+where the closure is created:
+
+\begin{lstlisting}
+class ClosureH (enclG : FrameG, enclD : D) {
+	def apply (this : ClosureH) = H (this.enclG, this.enclD)
+}
+def G (this : D): ClosureH = {
+	val h = new ClosureH (myself, this)
+	h.apply (h)
+}
+\end{lstlisting}
+
+Unfortunately, there seems to be an inherent loss of information
+where closures are involved.
+%In the above example, \code{h} must be mutable if any of the partially-applied
+%parameters are mutable, otherwise we may not be able to determine the purity
+%of \code{h.apply}.
+The type \code{ClosureH} can be passed anywhere
+the type \code{()=>Unit} is required, making it impossible in general
+to determine at the call site what \code{h.apply} is actually calling,
+or with what partially-applied parameters.
+We do, however, know whether \code{h} is mutable, which provides us with
+enough information to determine whether any of the partially-applied parameters
+may be mutable (although not precisely which of the parameters are mutable).
+
+\subsection{Alternatives}
+
+\subsubsection{Precision options in package parameters}
+
+Instead of passing a \code{packageRoot} parameter,
+we may pass a parameter for every possible package.
+This approach may allow us to be more precise about which packages
+a function may mutate.
+
+Another alternative is to only provide the \code{packageRoot} parameter, and no
+parameters for locally enclosing packages (\code{enclP} and \code{enclQ} in the above examples).
+
+It is unknown whether changing the precision of package parameters
+will provide us with any useful information in the analysis.
+
+\subsubsection{Single-enclosing paramater option}
+
+Instead of adding a parameter for each enclosing scope up to the nearest class,
+we may add a parameter for the immediately-enclosing scope only.
+In the above example, the transformed signature of \code{H} would merely
+be:
+\begin{lstlisting}
+def H (enclG : FrameG)
+\end{lstlisting}
+During identifier transformation, a usage of \code{this} inside \code{H}
+would become \code{enclG.this}, which involves a precision loss.
+
+The precision loss occurs where \code{H} is mutable in \code{this} but
+immutable in \code{enclG}. Because we must reach \code{this} through
+\code{enclG}, we must force \code{enclG} to also be mutable.
+It is unknown whether the precision loss significantly affects actual precision in practice.
+
+\subsubsection{Package-level parameters for all definitions}
+
+Reaching a package-level identifier requires finding an access path through all enclosing scopes.
+For example, a mutable access to an aribitrary package from within function \code{H}
+goes through the path \mbox{\code{this.this.packageRoot}}.
+We are therefore unable to say that \code{H} mutates through a package-level variable,
+but is immutable in \code{C} and \code{D}.
+
+If we include package-level parameters, the transformed signature of \code{H} could be:
+\begin{lstlisting}
+def H (enclG : FrameG, this : D, enclQ : Q, enclP : P, packageRoot : Root)
+\end{lstlisting}
+It is unknown whether this modification provides any improvement
+in actual precision.
+
+
+% alternatives: single encl parameter only, single encl + root parameter, all scopes have parameters (don't stop the parameter list at classes)
+
+
+%\bibliographystyle{alpha}
+%\bibliographystyle{plain}
+%\bibliographystyle{abbrv}
+%\bibliography{../references}
+
+\end{document}

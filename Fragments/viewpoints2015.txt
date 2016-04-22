@@ -1,0 +1,269 @@
+class vp field ->
+
+class D extends C
+When we want to move from type D to type C,
+a viewpoint adaption occurs.
+(Substitution involves being able to move from the given type to the formal type.)
+(In the absence of compatibility relationships, a type can only be substituted for itself.)
+
+(For field selections, )
+
+The reference immutability guarantee is:
+for every field selection t.f, with t:T and f:F,
+if T is readonly, then f cannot be assigned, and T.F is readonly.
+
+
+D @ro |> C[T] = 
+
+class C {
+	type T = MU..RO  // there's 4 kinds of concrete C: CMU[MU], CMU[RO], CRO[MU], CRO[RO]
+	var v: T
+}
+
+class D extends C {
+	type T = MU    // so the question here is whether T may be the type of a field of C...
+	//var v: MU    // inherited field
+}
+
+class E extends C {
+	type T = RO
+	//var v: RO    // inherited field
+}
+
+val d: DMU[MU], dr: DRO[MU]
+d.v   // MU
+dr.v  // RO - viewpoint adaptation
+val c: CMU[MU] = d, cr: CRO[RO] = dr
+c.v   // MU
+cr.v  // RO  -- or should be...
+
+val e: DMU[RO], er: DRO[RO]
+e.v   // RO
+er.v  // RO
+val c: CMU[RO] = e, cr: CRO[RO] = er
+c.v   // @mu
+cr.v  // @ro  -- or should be...
+
+
+Subtype relationships: (given D extends C):
+
+DMU[MU]  <:  CMU[MU..RO]
+DRO[MU]  <:  CRO[MU..RO]
+
+
+Subtype relationships: (among C):
+
+CMU[MU]  <:  CMU[RO]
+CMU[MU]  <:  CRO[MU]
+CMU[MU]  <:  CRO[RO]
+CMU[RO]  <:  CRO[RO]
+CRO[MU]  <:  CRO[RO]
+
+CMU[MU]  <:  CMU[MU..RO]
+CRO[MU]  <:  CRO[MU..RO]
+
+Viewpoint adaptation on field selection:
+
+MU  |>  CMU[MU]  =  CMU[MU]
+MU  |>  CMU[RO]  =  CMU[RO]
+MU  |>  CRO[MU]  =  CRO[MU]
+MU  |>  CRO[RO]  =  CRO[RO]
+
+RO  |>  CMU[MU]  =  CRO[MU]   *** type member can be MU, because t.f: RO where t: RO.
+RO  |>  CMU[RO]  =  CRO[RO]
+RO  |>  CRO[MU]  =  CRO[MU]   *** same here.
+RO  |>  CRO[RO]  =  CRO[RO]
+
+RO  |>  CMU[MU..RO]  =  CRO[MU..RO]   *** follows from above.
+
+class DMU extends CMU[MU] {}
+class DMU extends CMU[RO] {}
+class DMU extends CRO[MU] {}
+class DMU extends CRO[RO] {}
+class DRO extends CRO[MU] {}
+class DRO extends CRO[RO] {}
+
+class DMU extends CMU[MU..RO] {}
+class DMU extends CRO[MU..RO] {}
+class DRO extends CRO[MU..RO] {}
+
+
+Guarantees:
+assignability -- if an expression e refers to an object and e is readonly,
+          and f is a field of that object,
+					then e.f is not assignable.
+//transitivity -- if an expression e refers to an object and e is readonly,
+//          and f is a field of that object,
+//					then e.f is readonly.
+transitivity -- if an expression e refers to an object and e is readonly,
+          and f is a field of that object where f is not typed FRESH,
+					then e.f is readonly.
+
+
+Definitions:
+immutability -- if no reference to an object is mutable, then that object is immutable.
+freshness -- if there is exactly one reference to an object, that object is fresh.
+
+
+-----
+
+Notations:
+
+FR - any fresh type (reim has "mutable")
+TH - polymorphic type, from the locality of "this"
+RO - readonly type
+CFR - fresh, and of type C
+CTH - polymorphic, and of type C
+CRO - readonly, and of type C
+
+v: FR - a variable of some fresh type (fields cannot be fresh)
+v: TH - a variable or field of some this-polymorphic type
+v: RO - a variable or field of some readonly type
+
+v.t: T - a selection expression yielding type T
+v.t(s): T - a method selection expression yielding type T
+
+-----
+
+Model:
+
+Access to each superclass is mediated by a reference.
+Access to the enclosing environment is mediated by a reference.
+
+class C {
+	private env:TH
+	
+	v:TH
+	setv:(FR,TH) -> void
+}
+class D extends C {
+	private env:TH
+	superC:CTH
+	
+	m: (this:D) -> void
+	v = w  // translates to:
+	get
+	setv(this, w:FR)
+}
+
+-----
+
+Necessary Protections:
+
+Fields.
+Given cro:CRO, cfr:CFR, dth:DTH in C.
+cro.dth:DRO   // this implies a polymorphism!!!
+cfr.dth:DFR
+
+Accessor methods: Getters.
+Given cro: CRO, cfr: CFR, v: CTH -> DTH in C.
+cro.v: DRO
+cfr.v: DFR
+* Getter methods, by default, give a this-polymorphic (TH) type to the receiver (this).
+
+Accessor methods: Setters.
+Given cro: CRO, cfr: CFR, setv: (CFR,DFR) -> void in C, setw: (CFR,DRO) -> void in C, dro: DRO, dfr: DFR.
+cro.setv(...)   // ERROR: expected fresh receiver, got readonly receiver
+cfr.setv(dro)   // ERROR: expected fresh reference, got readonly reference
+cfr.setv(dfr)   // OK
+* Setter methods always give a fresh (FR) type to the receiver (this).
+  By default, the second parameter of a setter method is RO for an RO field, FR otherwise.
+
+Overridden methods.
+Given: cfr: CFR, dfr: DFR, cro: CRO, dro: DRO, m: CTH -> TH in C, m': DTH -> TH in D, D extends C, m' overrides m
+dro.m'(): RO
+cro.m(): RO
+dfr.m'(): FR
+cfr.m(): FR
+
+Overridden types.
+* Overridden types must be within parent's bounds.
+
+New objects.
+Given: class D in C.
+
+Invariant, transitive.
+* Given a readonly object reference r containing a non-fresh field f,
+  r.f is also readonly.
+* If all fields of a readonly object are non-fresh, then all fields
+  r.f are also readonly.
+	- When are are all fields non-fresh?
+	  
+
+* Since it is always possible to introduce fresh fields in
+  derived classes, readonly protections do not necessarily translate to fields...
+
+Invariant, strongly transitive.
+* Given a strongly readonly object reference r containing a field f,
+  r.f is also strongly readonly.
+
+
+-----
+
+Code Examples:
+
+class C {
+	type T = MU..RO
+	var v: T
+}
+class D extends C {
+	type T = RO
+	v  // RO when seen from here
+}
+var dmu: DMU
+var cmu: CMU = d  // ERROR: D.T not compatible with C.T
+
+var dro: DRO
+var cro: CRO = d
+-----
+
+class I[S](env: EnvRO) {
+	val envI: EnvRO = env
+	def next: IFR[S] -> S
+}
+class LC(env: EnvRO) {
+	class C   // class C: LCTH -> CFR = { /* ctor */ }
+	def head: LCTH -> C
+	def tail: LCTH -> LCTH
+
+	// EXP 1: from method to class instantiation
+	//def iterator: LCTH -> IFR[C] = { val thisList = this; }
+	class Iterator(env: LCRO) {
+		val thisList: LCRO = env
+	}
+	def iterator: LCTH -> IFR[C] = (new Iterator(this)).result
+	
+	// EXP 2:
+	def iterator: LCRO -> IFR[C] = {
+		var current: LCRO = this
+		class MyI(env: iteratorFR) extends I[C] {
+			type S = C
+			private val _env: iteratorTH = env
+			def next: MyIFR -> C = {
+				val c: C = this._env.current.head
+				this._env.current = this._env.current.tail
+				c
+			}
+		}
+		new MyI(sfRef)
+	}
+}
+
+
+class C[T](env: EnvRO) {
+	var t: T
+}
+val cfrfr: CFR[FR]
+cfrfr.t = fr  // OK: can assign a fresh reference to a fresh field
+val crofr: CRO[FR] = cfrfr   // OK: I can "unfresh" the object reference while not unfreshing the field
+crofr.t: FR   // OK: a fresh reference from a readonly object
+
+---
+
+class C {
+	type T
+	class D {
+		env: CTH
+		
+	}
+}

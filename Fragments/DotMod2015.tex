@@ -1,0 +1,253 @@
+\documentclass[11pt]{report}
+
+\usepackage{fullpage}
+
+\usepackage{booktabs}
+
+\usepackage{amsmath,amssymb,amstext} % Lots of math symbols and environments
+\usepackage[pdftex]{graphicx} % For including graphics N.B. pdftex graphics driver 
+
+%custom packages
+\usepackage{cancel}
+\usepackage{comment}
+\usepackage{courier}
+\usepackage{fixltx2e}  % for subscript text in sections/bookmarks
+\usepackage{listings}
+%\usepackage[12pt]{moresize}
+\usepackage{multirow}
+%\usepackage{ulem}
+\usepackage{url}
+\usepackage[utf8]{inputenc}
+\usepackage[usenames,dvipsnames,svgnames,table]{xcolor}
+
+\newcommand{\cd}{\ttfamily\footnotesize}
+
+\lstdefinelanguage{ScalaExamples}{
+	morekeywords={
+		def,var,val,object,package,class,abstract,trait,extends,with,
+		match,case,
+		import,
+		this,super,override,
+		private,protected,public,private[this],protected[this],
+		final,sealed,null,new,
+		for,do,while,until,yield,return},
+	sensitive=true,
+	morecomment=[l]{//},
+	morecomment=[s]{/*}{*/},
+	morestring=[b]"
+}
+\lstset{
+	language={ScalaExamples},
+	basicstyle=\cd,
+	tabsize=2,
+	keywordstyle=\bf\cd\color{Blue},
+	identifierstyle=\bf\cd,
+	commentstyle=\bf\scriptsize\color{gray},
+	xleftmargin=\parindent,
+	extendedchars=true,
+	breaklines=true,
+	captionpos=b,
+	frame=b,
+	float=htp,
+	emph={@pure,@readonly,@bounded,@rothis,
+		@mutEnv[C],mutEnv[C],@mutEnv[D],mutEnv[D],@mutable,@fresh},
+	emphstyle={\bf\cd\color{OliveGreen}},
+	moredelim=**[is][\bf\cd\color{OliveGreen}]{@*}{*@},
+	escapeinside={(*}{*)}
+}
+
+\begin{document}
+
+
+% all language structures with mutable/readonly
+%  0. argument for conceptual simplicity over optimization
+%  1. field selection
+%  2. method selection
+%  3. object construction and type selection
+%  4. environment references and closures and package objects
+%  5. accessor methods
+
+% extension1: rothis, roparam, fresh
+
+% defaults1: accessors, function types, bounded types, new objects, ...
+%   function types and syntactic sugar
+
+% holes1: bounded, asInstanceOf
+
+
+% basic qualifiers
+% qualifiers allowed on fields (vs local variables)
+
+% List of bits to include:
+%   rothis - polymorphism
+%   viewpoint adaptation
+%   closures
+%   polymorphic purity
+%   fresh results
+
+\title{RIP-Scala:\\Compiler-checkable Reference Immutability and Purity\\for the Scala Language}
+\author{Jonathan Rodriguez\\University of Waterloo}
+\maketitle
+
+% RESEARCH AGENDA
+
+% does type substitution/refinement create holes in the system?
+% under what conditions are methods really pure (not creating externally observable effects)?
+% viewpoint adpation and lower bounds of type members
+% acceptable qualifier defaults
+
+
+\chapter{Introduction}
+
+% the motivation behind this work
+
+% background: reference immutability
+
+% RI as a system of type qualifiers
+
+%  lookahead: arbitrary nesting of classes and methods, environment references, closures,
+%  env-reference polymorphism, freshness
+
+The motivation behind this work is to help programmers reduce unexpected
+mutations of shared state by means of a compile-time annotation-checking mechanism.
+Unexpected mutation of shared state is a pervasive problem in object-oriented systems,
+both single-threaded and concurrent.
+{\em The Geneva Convention on the Treatment of Object Aliasing}~\cite{geneva}
+pinned the blame for this problem on the unrestricted copying of object references,
+and suggested that such aliasing may be managed through some combination
+of aliasing detection, advertisement, prevention, and control.
+Of particular interest in the current work are aliasing advertising
+and prevention; alias advertising involves statically declaring (for example)
+the aliasing operations that a method may perform, and alias prevention involves
+the creation of mechanisms for statically checking alias advertisements.
+
+One prominent attack on the problem of object aliasing was Ownership Types~\cite{ownership-types},
+which introduced a statically-checkable notion of {\em object ownership},
+where references to any given object cannot be created or passed outside of its owning object.
+Although the original formulation of ownership types was inflexible
+and annotation-heavy, it spawned the research into a large number of
+lighter-weight and more-flexible systems of alias restriction.
+%increasingly-flexible
+%and lighter-weight ownership systems.  % such as universes, lightweight alias protection, etc.
+One of the concepts that emerged from the exploration of more flexible systems
+is the {\em owners-as-modifiers} discipline, which (unlike the
+{\em owners-as-dominators} discipline of the original ownership types system)
+allows arbitrary references into an ownership domain provided that
+no mutations are performed on objects reached through those references.
+
+{\em Readonly} references turn out to be useful for more than simple support of
+ownership type systems.
+Even in the absence of explicit aliasing or ownership information,
+knowledge of which references are {\em readonly} is frequently sufficient to
+prove that certain program methods are pure (or {\em side effect free}).
+Where method purity is not guaranteed,
+annotations of {\em readonly} references can still serve as compiler-checkable documentation
+that certain objects (namely, those reachable through {\em readonly} references) are
+not expected to be mutated.
+The next chapter (chapter~\ref{chap-background}) discusses the strengths and limitations
+of {\em readonly} as a reference annotation mechanism, and how {\em readonly} may be
+combined with other types of knowledge to produce stronger guarantees.
+Limitations notwithstanding, the addition of {\em readonly} remains a
+worthwhile first step in the limitation of shared-memory side effects.
+
+The current work explores a particular approach to introducing {\em readonly}
+and related annotations into the Scala language.
+Scala includes a number of advanced language-level features that complicate
+the practical introduction of reference immutability.
+These features include path-dependent type selection, synthetic accessor methods,
+and arbitrary nesting of classes and methods.
+Scala is not the only programming language with these features;
+the ideas in the current work may be transferrable to languages with
+similar features, although the investigation of such transferrence is
+outside of the scope of the current work.
+Correct handling of Scala's features necessitates a more complex approach to
+reference immutability than previous approaches for Java,
+particularly if the result is to be practical for use in production code.
+
+The focus in the current work is on a compiler-checkable annotation system.
+These annotations are compiler-checkable documentation of the ways in which programmers
+expect annotated references to be copied and used.
+The focus is furthermore on the limitation of shared-memory side effects
+rather than the description of general side effects, although further work
+may show that reference immutability is sufficient to describe stateful changes
+in the external world as well as in memory.
+Related dimensions of investigation not addressed by the current work
+include run-time considerations, gradual typing considerations,
+or whole-program inference.
+Although investigation of these dimensions would be useful,
+they are outside of the scope of the current work.
+
+The current work defines reference immutability as a system of {\em type qualifiers}.
+The type system restricts the set of allowed programs to those programs that
+the compiler can prove type-correct; addition of reference-immutability {\em qualifiers}
+further restricts allowed programs to those that are consistent with respect to
+reference immutability constraints.
+A multi-phase compiler plugin implements the necessary reference-immutability-related logic.
+
+Chapter~\ref{chap-background} contains background on reference immutability and
+on the Scala language.
+Chapter~\ref{chap-mutable-readonly} presents a basic reference immutability system
+for the Scala language, and chapter~\ref{chap-flexibility-scala} presents a set of
+extensions to the basic system.
+Chapter~\ref{chap-dot-calculus-emend} formalizes key parts of the system
+as an extension to the DOT calculus.
+The type qualifier system itself does not address all practical concerns;
+the question of appropriate default qualifiers is discussed in chapter~\ref{chap-defaults},
+and mapping of programmer-facing annotations to appropriate qualifiers is
+addressed in chaper~\ref{chap-annotations}.
+Chapter~\ref{chap-related-work} compares the current work with related work,
+and chapter~\ref{chap-evaluation} evalutes the work in terms of support for
+code idioms, compiler performance impact, and experience annotating
+the standard library.
+Future work is briefly described in chapter~\ref{chap-future-work},
+and chapter~\ref{chap-conclusion} contains a conclusion.
+
+\chapter{Background} \label{chap-background}
+	\input{chap-background}
+
+
+
+\chapter{Reference Immutability for Scala}
+	\label{chap-mutable-readonly}
+	\input{chap-mutable-readonly}
+
+
+\chapter{Extensions of Reference Immutability for Scala} \label{chap-flexibility-scala}
+	\input{chap-flexibility-scala}
+
+
+\chapter{A Modification of the DOT Calculus} \label{chap-dot-calculus-emend}
+	\input{chap-dot-emend}
+
+
+\chapter{Default Qualifiers} \label{chap-defaults}
+	\input{chap-defaults}
+
+
+\chapter{Programmer-facing Annotations} \label{chap-annotations}
+	\input{chap-annotations}
+
+\chapter{Related Work} \label{chap-related-work}
+TBD.
+
+\chapter{Evaluation} \label{chap-evaluation}
+\section{Code Idioms}
+TBD. {\em Iterator pattern, construct immutable circular list.}
+\section{Performance \& Memory Usage}
+TBD.
+\section{Annotating the Standard Library}
+TBD.
+
+\chapter{Future Work} \label{chap-future-work}
+\section{Observational Exposure}
+TBD.
+
+\chapter{Conclusion} \label{chap-conclusion}
+TBD.
+
+
+
+\bibliographystyle{plain}
+\renewcommand*{\bibname}{References}
+\bibliography{DotMod2015}
+\end{document}

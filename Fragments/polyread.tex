@@ -1,0 +1,191 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{alltt}
+\usepackage{amsmath}
+\usepackage[greek,english]{babel}
+%\usepackage{booktabs}
+%\usepackage{cite}
+%\usepackage{color}
+\usepackage{fixltx2e}
+\usepackage[T1]{fontenc}
+%\usepackage{fullpage}
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+%\usepackage{mathtools}
+\usepackage{mdwlist}
+%\usepackage{needspace}
+\usepackage{url}
+\usepackage{verbatim}
+\usepackage{xspace}
+
+% Fonts and symbols
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage[scaled=.65]{beramono}
+\usepackage{courier}
+\usepackage{times}
+
+\newenvironment{absolutelynopagebreak}
+  {\par\nobreak\vfill\penalty0\vfilneg
+   \vtop\bgroup}
+  {\par\xdef\tpd{\the\prevdepth}\egroup
+   \prevdepth=\tpd}
+
+\newcommand{\greekmu}{\greektext m\latintext}
+
+\newcommand{\tab}[0]{\hspace{0.4cm}}
+
+\renewcommand{\ttdefault}{txtt}
+
+\lstset{
+	basicstyle=\footnotesize\ttfamily,
+	tabsize=4,
+	extendedchars=true,
+	breaklines=true,
+	escapeinside={(*}{*)},
+	frame=l,  % trbl for single-line frames, TRBL for double-line frames
+	xleftmargin=1.5\parindent
+}
+
+\newcommand{\code}[1]{\lstinline$#1$}
+
+
+
+\begin{document}
+	
+	{}
+
+Generic type parameters may be overloaded by any mutability.
+
+Where mutability checks are needed:
+- defs: rhs TMT <: lhs TMT
+- assignment
+- overloaded def/var/val: parameters are contravariant, results are covariant.
+	
+%Inheritance must preserve the mutability of generic type parameters.
+
+
+	trait A {
+		type T
+		def foo(p1: T)
+		def z: T
+		val w: T
+		var v: T
+		w.x = y
+	}
+
+	trait B extends A {
+		type U = T @readonly
+		override def foo(p1: U)   // Error: original definition of p1 is not @readonly
+		override def z: U
+		override val w: U
+		override var v: U         // Error: v_=(p1) parameter mismatch: original p1 is not @readonly
+		w.x = y  // not allowed - w is @readonly
+		v = A.super.v
+	}
+	
+	{}
+
+Only method types may use \code{@polyread}.
+
+Parameterless definitions %(ExprType)
+have exactly the result type declared.
+This rule creates a consistency between variable defintions and parameterless
+method definitions, in that changing a defintion from a \code{var} to a \code{def}
+does not affect its type.
+
+%example here
+
+%(PolyType)
+
+%(MethodType)
+
+
+\section{}
+
+The TMT of a variable depends on where that variable is viewed from.
+Just as a physical object can block line-of-sight,
+the presence of a \emph{readonly} constraint can block mutation privileges.
+If a \emph{readonly} constraint is present anywhere along an access path (the ``line-of-sight''),
+then the ability to perform mutation is blocked.
+
+At any location in the source code, the \emph{readonly} constraint is
+\emph{present}, \emph{absent}, or \emph{conditional}.
+Where the constraint is present, the type is \emph{readonly};
+where it is absent, \emph{mutable}; and
+where it is conditional, \emph{polyread}.
+
+The \emph{polyread} type requires further explanation --
+i.e., \emph{polyread} is conditional upon what?
+The normal use of \emph{polyread} is as a generic type to reduce code duplication
+where a method may be called from either a \emph{readonly} viewpoint
+or a \emph{mutable} viewpoint~(cf. \emph{romaybe} in Javari~\cite{javari}).
+ReIm~\cite{reim} also uses \emph{polyread} for viewpoint-adapatable fields;
+but since I allow \emph{mutable} fields to be viewpoint-adapted,
+I drop this meaning of \emph{polyread}.
+The meaning of \emph{polyread} at a particular location in the source code
+depends upon the method whose result type is being adapted.
+Polyread
+
+There are potentially as many \emph{polyread} types as methods in the source code~--
+each 
+
+
+The subtyping relationship is:
+$M <: P_o <: R$ for any $P_o$,
+where $o$ is the \emph{origin} of the type $P_o$.
+The origin is the method symbol.
+
+By default, \emph{polyread} types can only be declared on method arguments and return types.
+For such declarations, the origin is the method symbol.
+Local variables may have inferred \emph{polyread} types, in which case the inferred type has the
+same origin as the type of the right-hand expression.
+
+In code examples, we denote $P_o$ by the annotation \code{@polyread(o)}.
+
+Nested methods present a challenge.
+For example:
+
+\begin{lstlisting}
+	def n(n1: @polyread(n), n2: @polyread(n)): @polyread(n) = {
+		def m(m1: @polyread(m), m2: @polyread(m)): @polyread(m) = {
+			m(m1, m2)   // result type @polyread(m)
+			m(n1, n2)   // result type @polyread(n)
+			n(m1, m2)   // result type @polyread(m)
+			n(n1, n2)   // result type @polyread(n)
+			m(n1, m1)   // result type @polyread(n) | @polyread(m)
+			n(n1, m1)   // result type @polyread(n) | @polyread(m)
+		}
+		n(n1, n2)   // result type @polyread(n)
+		m(n1, n2)   // result type @polyread(n)
+	}
+\end{lstlisting}
+
+A few things to note about the previous listing:
+First, that the return type of a polyread method application depends only
+on the argument types.
+Second, method \code{m} should be allowed to return \code{n1}, \code{n2},
+or other expressions yielding type \code{@polyread(n)}.
+An application of method \code{m} belongs to a particular instance of method \code{n}
+
+\begin{lstlisting}
+	def n(n1: @polyread(n), n2: @polyread(n)): @polyread(n) = {
+		var nv1 = n1
+		def m(m1: @polyread(m), m2: @polyread(m)): @polyread(m) = {
+			var mv1 = m1  // OK: type is @polyread(m)
+			var nv2 = n1  // OK: type is @polyread(n)
+			return nv2    // error: @polyread(n) is not compatible with @polyread(m)
+			return mv1    // OK: type @polyread(m) is compatible with @polyread(m)
+		}
+	}
+\end{lstlisting}
+
+
+%\bibliographystyle{alpha}
+%\bibliographystyle{plain}
+%\bibliographystyle{abbrv}
+%\bibliography{../references}
+
+\end{document}

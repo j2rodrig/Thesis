@@ -1,0 +1,138 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{alltt}
+\usepackage{amsmath}
+\usepackage[greek,english]{babel}
+%\usepackage{booktabs}
+%\usepackage{cite}
+%\usepackage{color}
+\usepackage{fixltx2e}
+\usepackage[T1]{fontenc}
+%\usepackage{fullpage}
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+%\usepackage{mathtools}
+\usepackage{mdwlist}
+%\usepackage{needspace}
+\usepackage{url}
+\usepackage{verbatim}
+\usepackage{xspace}
+
+% Fonts and symbols
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage[scaled=.65]{beramono}
+\usepackage{courier}
+\usepackage{times}
+
+\newenvironment{absolutelynopagebreak}
+  {\par\nobreak\vfill\penalty0\vfilneg
+   \vtop\bgroup}
+  {\par\xdef\tpd{\the\prevdepth}\egroup
+   \prevdepth=\tpd}
+
+\newcommand{\greekmu}{\greektext m\latintext}
+
+\newcommand{\tab}[0]{\hspace{0.4cm}}
+
+\renewcommand{\ttdefault}{txtt}
+
+\lstset{
+	basicstyle=\footnotesize\ttfamily,
+	tabsize=4,
+	extendedchars=true,
+	breaklines=true,
+	escapeinside={(*}{*)},
+	%frame=l,  % trbl for single-line frames, TRBL for double-line frames
+	%xleftmargin=\parindent
+}
+
+\newcommand{\code}[1]{\lstinline$#1$}
+
+
+
+\begin{document}
+
+\section{Immutability}
+
+\emph{Immutability} is a guarantee that an object will not be modified.
+
+Immutability can be \emph{strong} or \emph{weak}.
+A strong immutability guarantee (also called \emph{object immutability}) ensures that
+an immutable object can never be modified.
+A weak immutability guarantee (also called \emph{reference immutability}) only
+ensures that an object cannot be modified if accessed through an
+immutable (or \emph{read-only}) reference.
+Mutable references to that same object may exist.
+
+Immutability can be \emph{deep} or \emph{shallow}.
+A deep immutability guarantee disallows modification of an immutable object
+or any other objects referenced by that object.
+A deep immutability guarantee is \emph{transitive}.
+A shallow immutability guarantee only disallows the modification of the immutable object,
+but permits modification of other objects referenced by it.
+
+Immutability can be \emph{concrete} or \emph{abstract}.
+A concrete immutability guarantee disallows all writes to immutable objects.
+An abstract immutability guarantee only disallows writes that would change
+the immutable object's abstract value.
+\emph{Benevolent side effects}, which change an object's underlying representation
+but do not change its abstract value, are permitted under abstract immutability.
+
+\subsection{Immutability in C++ and Java}
+
+C++ allows pointers and objects to be declared \emph{const}.
+Const pointers only protect the immutability of the pointer value itself, not the object pointed to.
+The immutability of const objects is deep, but only for contained objects.
+Objects referenced by pointer are not included in the immutability guarantee.
+While C++ does prevent direct violations of \emph{const},
+the presence of const-casting and other loopholes prevents the enforcement of
+any strong immutability or purity guarantees.
+
+Java allows fields to be declared \emph{final},
+which prevents the modification of the field value itself.
+Final references, like const pointers, do not provide transitive immutability guarantees.
+
+
+
+\subsection{Ownership Types}
+
+\emph{Object ownership} is a way of expressing that some objects are owned (or contained)
+by other objects. For example, a \code{List} object may \emph{own} its data elements.
+
+\emph{Ownership type systems} allow programmers to declare the ownership relationships
+among objects. These declared ownership relationships are machine-checkable.
+For a survey of ownership type systems, see Clarke et al.~\cite{ownership-types}.
+
+The original ownership type system by Clarke et al.~\cite{ownership-types-1998}
+enforced the \emph{owners-as-dominators}
+property, which forces all external references to an object to
+go through the object's owner. All accesses of a \mbox{\code{List}'s} data
+must be performed through \mbox{\code{List}'s} methods, for example.
+An owners-as-dominators system forces all objects to be organized into a tree
+structure, which is often too inflexible for the aliasing needs of real
+programs. For the \code{List} example, who would own an iterator over the list?
+If the iterator was owned by the \code{List} object, it could not be accessed by
+other objects. If the iterator was owned by a different object,
+then it could not access the list elements.
+In response to this inflexibility,
+later work on ownership types investigated possible relaxations of
+the owners-as-dominators property.
+
+
+Owners-as-dominators: problems: iterator over list
+
+Owners-as-modifiers
+
+%"In his master's thesis, Nageli [109] uses design patterns to evaluate three different Ownership Types systems (Universes, Clarke and Drossopoulou's Joe1, and Ownership Domains). ... Based on this study, he lists the following requirements for Ownership Type systems: alias control for representation objects, support for read-only references, multiple ownership, ownership transfer, friend contexts (analogous to friends in C++)."
+
+
+
+%\bibliographystyle{alpha}
+%\bibliographystyle{plain}
+\bibliographystyle{abbrv}
+\bibliography{../references}
+
+\end{document}

@@ -1,0 +1,1010 @@
+% subtyping relationship: S <: T only if qual(S) <: qual(T)
+% entailments
+
+% DOT calculus syntax: doesn't model inhertance, failure to prove preservation - but preservation is only one way to prove type safety - see uDOT
+
+% type assignment rules
+
+%  field assignment as a setter method call -- setter methods have a mutEnv[T] receiver where T is the imm. encl. class
+
+% declaration subsumption rules
+
+The Dependent Object Types (DOT) calculus~\cite{dot}
+is a formalization of several of Scala's key language features.
+These features include abstract type members, type refinements,
+and path-dependent types.
+I extend the DOT calculus to show precisely how type qualifiers
+interact with key language features.
+
+The newer \mbox{$\mu$DOT} calculus~\cite{udot}
+features a smaller syntax designed specifically to model
+path-dependent types.
+Unlike DOT, \mbox{$\mu$DOT} has a complete type-safety proof.
+However, I chose to express type qualifier interactions
+as extensions to DOT rather than \mbox{$\mu$DOT} because the small-step operational
+semantics of DOT seemed to afford a clearer presentation
+of qualifier interactions than the big-step semantics of \mbox{$\mu$DOT}.
+
+In any case, the lack of a preservation proof (and corresponding failure
+to build a classical type-safety proof) for DOT is not necessarily a hinderance to
+extending DOT to describe type qualifier interactions.
+The qualifier-extended language should be type-safe to the extent that
+the underlying language is type-safe,
+provided the set of accepted programs in the qualifier-extended language
+is a subset of the programs accepted in the original language.
+%extensions do not modify the semantics of the underlying language.
+%The type qualifier extension should only restrict the set of
+%accepted programs, not modify the underlying language semantics.
+If a complete type-safety proof for DOT is discovered in the future,
+then the qualifier-extended version of DOT should also be type-safe.
+
+The basic extensions to DOT are the following:
+
+\begin{enumerate}
+
+\item{\bf Any type can be annotated with a qualifier.}
+The extended DOT syntax includes the type expression \mbox{$T@Q$},
+where $T$ is a type and $Q$ is a qualifier.
+Furthermore, qualifier judgments of the form \mbox{$qual(T)=Q..R$}
+are described in section~\ref{sec-qualifier-judgments}.
+These qualifier judgments associate every type $T$ (annotated or not)
+with lower and upper qualifier bounds $Q$ and~$R$.
+
+%\item {\bf Every type is associated with exactly one type qualifier.}
+%For every type $T$ in the original DOT formulation,
+%I substitute $T_q$, where $q$ is the reference immutability qualifier
+%on~$T$.
+
+%For any type $T \in \tau$, the function $$qual: \tau \rightarrow Q$$
+%yields the type qualifier $q \in Q$ associated with type $T \in \tau$.
+%The related function $$withQual: \tau \rightarrow Q \rightarrow \tau$$
+%yields a type identical to its first argument, except that the resulting type is
+%associated with a qualifier identical to the second argument, so that
+%the following relation holds:
+%$$qual(withQual(T,q)) = q$$
+
+\item {\bf Certain judgments are modified to take qualifiers into account.}
+Section~\ref{sec-qualifier-judgments} introduces {\em qualified subtype}
+judgments of the form~\mbox{$S <:_q T$}.
+The conditions required to form the judgment \mbox{$S <:_q T$} are
+stronger than the conditions required for an ordinary subtype judgment~\mbox{$S <: T$}.
+A selection of type assignment judgments and declaration-related judgments
+are modified to use \mbox{$<:_q$} rather than \mbox{$<:$} in their conditions,
+which has the effect of eliminating judgments that are incorrect with respect to qualifiers.
+
+%\item {\bf Type qualifiers eliminate some subtype judgments.}
+
+%For qualified types $T_q$ and $U_r$, the subtype judgment $$\Gamma \vdash T_q <: U_r$$
+%may exist only if $$q <: r$$
+%I do not explicitly amend DOT to include elimination of
+%subtype judgments. However, every valid relationship \mbox{$T_q <: U_r$}
+%should be understood to imply \mbox{$q <: r$.}
+
+%Due to covariance of environment references, \mbox{$T_q <: U_r$}
+%%also implies \mbox{$env(T_q) <: env(U_r)$}.
+%(See section~\ref{dot-aux-functions}
+%on the definition of $env$ and section~\ref{sec-env-covariance} on environment-reference
+%covariance.)
+
+\item {\bf The notion of a {\em concrete type} is replaced with the more general
+notion of a {\em constructible type}.}
+Constructibility judgments of the form~\mbox{$T\ {\bf constr}$} indicate
+that the type $T$ satisfies all requirements necessary for construction.
+In the unmodified DOT, all concrete types are constructible;
+in the modified DOT, a concrete type may not be constructible if
+an environment-reference qualifier restriction is violated.
+Section~\ref{sec-constructibility-judgments} discusses constructibility judgments.
+
+%\item {\bf Every concrete type is associated with an environment-reference qualifier.}
+%Path-dependent type selections where the path's type qualifier
+%does not conform to the selected type's environment reference
+%should not be constructible.
+%Section~\ref{dot-env-def} describes the handling of non-conforming type
+%selections, and rule~\ref{equ-new} in section~\ref{dot-type-assign}
+%is modified to prevent construction of objects with non-conforming type selections.
+
+\end{enumerate}
+
+
+Type qualifiers also restrict other judgments.
+The sections below describe the DOT language, and qualifier-related restrictions
+on that language, in detail.
+Section~\ref{sec-dot-syntax} briefly describes the DOT syntax, amended to
+account for qualifiers.
+Section~\ref{dot-union-intersect} briefly discusses qualifier-related concerns
+with type intersections and unions.
+Section~\ref{dot-aux-functions} describes the auxiliary functions used to handle
+qualifiers in the modified DOT rules.
+Section~\ref{dot-env-def} describes the environment-qualifer function \mbox{$env$}.
+Following section~\ref{dot-env-def} are presentations of rule-specific
+modifications of DOT.
+What will be shown in section~\ref{dot-qual-typesafe} is that the modifications
+of DOT do not introduce type unsoundness into DOT.
+A few considerations not modeled in the formalism, but nonetheless must be
+considered in the implementation, are discussed in section~\ref{dot-unaddressed}.
+
+
+\section{DOT Syntax}
+\label{sec-dot-syntax}
+
+The DOT calculus syntax is reproduced here (figure~\ref{fig-dot-syntax}),
+but with the addition of type qualifiers ($q,r,u,w$ in the box at the bottom of
+the right-hand side).
+I highlight a few of the salient features of DOT here.
+For more detailed information on these and other aspects of DOT, see the DOT paper~\cite{dot}.
+
+\begin{figure}[htbp]
+	\begin{equation*}
+	\begin{array}{ll|ll}
+		x,y,z & \text{Variable} &
+			L::= & \text{Type label} \\
+		l & \text{Value label} &
+			\qquad L_c & \quad \text{class label} \\
+		m & \text{Method label} &
+			\qquad L_a & \quad \text{abstract type label} \\
+		v::= & \text{Value} &
+			S,T,U,V,W::= & \text{Type} \\
+		\qquad x & \qquad \text{variable} &
+			\qquad p.L & \quad \text{type selection} \\
+		t::= & \text{Term} &
+			\qquad T\ \{ z \Rightarrow \overline{D} \} & \quad \text{type refinement} \\
+		\qquad v & \qquad \text{value} &
+			\qquad T \land T & \quad \text{intersection type} \\
+		\qquad {\bf val}\ x = {\bf new}\ c; t & \qquad \text{new instance} &
+			\qquad T \lor T & \quad \text{union type} \\
+		\qquad t.l & \qquad \text{field selection} & \qquad \top & \quad \text{top type} \\
+		\qquad t.m(t) & \qquad \text{method invocation} &
+			\qquad \bot & \quad \text{bottom type} \\
+		p::= & \text{Path} &
+			\qquad \boxed{T@B} & \quad \text{qualified type} \\
+		\qquad x & \qquad \text{variable} &
+			\cancel{S_c, T_c ::=} & \cancel{\text{Concrete type}} \\
+		\qquad p.l & \qquad \text{selection} &
+			\multicolumn{2}{l}{
+			\qquad \cancel{p.L_c\ |
+				\ T_c\ \{ z \Rightarrow \overline{D} \}\ |
+				\ T_c \land T_c\ |
+				\ \top}
+				%\ |
+				%\ \boxed{T_c@Q}
+			} \\
+		c::=T\ \{\overline{d}\} & \text{Constructor} &
+			D::= & \text{Declaration} \\
+		d::= & \text{Initialization} &
+			\qquad L:S..U & \quad \text{type declaration} \\
+		\qquad l=v & \qquad \text{field initialization} &
+			\qquad l:T & \quad \text{value declaration} \\
+		\qquad m(x)=t & \qquad \text{method initialization} &
+			\qquad m:S \rightarrow U & \quad \text{method declaration} \\
+		s::=\overline{x \mapsto c} & \text{Store} &
+			\Gamma ::= \overline{x:T} & \text{Environment} \\
+	\multicolumn{2}{l|}{
+				\fbox{
+					\begin{minipage}{0.47\linewidth}
+						$B,A::= Q..R \qquad \quad \text{Qualifier Bounds}$
+					\end{minipage}
+				}
+				} &
+			\multicolumn{2}{l}{
+				\fbox{
+					\begin{minipage}{0.43\linewidth}
+						$Q,R::= \qquad \quad \ \ \text{Type qualifier}$
+						
+						$\ \ \ \ mutable\ |\ mutable_{L_c}\ |\ readonly\ |$
+						
+						$\ \ \ \ rothis\ |\ fresh$
+					\end{minipage}
+				}
+				} \\
+	\end{array}
+	\end{equation*}
+	\caption{DOT Syntax with Type Qualifiers}
+	\label{fig-dot-syntax}
+\end{figure}
+
+\begin{comment}
+\begin{figure}[htbp]
+	\begin{equation*}
+	\begin{array}{ll|ll}
+		x,y,z & \text{Variable} & L::= & \text{Type label} \\
+		l & \text{Value label} & \qquad L^c & \quad \text{class label} \\
+		m & \text{Method label} & \qquad L^a & \quad \text{abstract type label} \\
+		v::= & \text{Value} & S_q,T_q,U_q,V_q,W_q::= & \text{Type} \\
+		\qquad x & \qquad \text{variable} & \qquad p.L & \quad \text{type selection} \\
+		t::= & \text{Term} & \qquad T_q\ \{ z \Rightarrow \overline{D} \} & \quad \text{type refinement} \\
+		\qquad v & \qquad \text{value} & \qquad T_q \land T_q & \quad \text{intersection type} \\
+		\qquad {\bf val}\ x = {\bf new}\ c; t & \qquad \text{new instance} & \qquad T_q \lor T_q & \quad \text{union type} \\
+		\qquad t.l & \qquad \text{field selection} & \qquad \top & \quad \text{top type} \\
+		\qquad t.m(t) & \qquad \text{method invocation} & \qquad \bot & \quad \text{bottom type} \\
+		p::= & \text{Path} & S_q^c, T_q^c ::= & \text{Concrete type} \\
+		\qquad x & \qquad \text{variable} &
+			\multicolumn{2}{l}{
+			\qquad p.L^c\ |\ T_q^c\ \{ z \Rightarrow \overline{D} \}\ |\ T_q^c \land T_q^c\ |\ \top} \\
+		\qquad p.l & \qquad \text{selection} & D::= & \text{Declaration} \\
+		c::=T_q^c\ \{\overline{d}\} & \text{Constructor} & \qquad L:S_q..U_q & \quad \text{type declaration} \\
+		d::= & \text{Initialization} & \qquad l:T_q & \quad \text{value declaration} \\
+		\qquad l=v & \qquad \text{field initialization} & \qquad m:S_q \rightarrow U_q & \quad \text{method declaration} \\
+		\qquad m(x)=t & \qquad \text{method initialization} &
+			\Gamma ::= \overline{x:T_q} & \text{Environment} \\
+		s::=\overline{x \mapsto c} & \text{Store} &
+			\multicolumn{2}{l}{\boxed{q,r,u,w \qquad \qquad \qquad \text{Type Qualifier}}}\\
+	%\multicolumn{4}{c}{\boxed{q,r,s,u \qquad \text{Type Qualifier}}} \\
+	\end{array}
+	\end{equation*}
+	\caption{DOT Syntax with Type Qualifiers}
+	\label{fig-dot-syntax}
+\end{figure}
+\end{comment}
+
+Every type in DOT contains a number of declarations. A declaration $D$ can be
+a type declaration, a value (field) declaration, or a method declaration.
+A set of declarations is denoted by~$\overline{D}$.
+
+When an object is constructed, every field must be initialized
+to a particular value, and every method must correspond to a particular program term.
+Constructors have the form \mbox{$T_q^c\ \{ \overline{d} \}$},
+where \mbox{$T_q^c$} is a concrete type, and \mbox{$\overline{d}$} is
+a set of initializers.
+
+Only concrete types can be constructed.
+A concrete type can be the empty type~$\top$ (containing no declarations),
+the intersection of two concrete types (the intersection carries all declarations present
+in either type),
+a refinement of a concrete type (the refinement adds declarations),
+or path-dependent class selection~(\mbox{$p.L^c$}).
+
+A path-dependent class selection~\mbox{$p.L^c$} selects a class (with
+the unique label~\mbox{$L^c$}), as reached through a particular path~$p$.
+Path-dependent class selection is important for supporting nested classes.
+Since nested classes are able to access members of their enclosing classes,
+an instance of a nested class requires a reference to the correct instance of
+its enclosing class.
+The path $p$ yields the necessary environment reference;
+section~\ref{sec-env-ref} discusses environment references in detail,
+and rule~\ref{equ-new} in section~\ref{dot-type-assign} shows how the reference immutability
+qualifier on the type of $p$ is used to restrict new object construction.
+
+%type bounds
+DOT also supports abstract type members.
+There is no additional concession required to support qualifier-related
+restrictions on type substitution (section~\ref{sec-vp-bounded});
+the normal subtype-related restrictions enforced during type
+refinement should also correctly enforce the qualifier bounds
+on abstract types.
+
+%not inheritance
+DOT does not attempt to model inheritance.
+Although DOT allows the structural contents of a type to be derived
+from another type via type refinement,
+DOT does not include any notion of a nominal class hierarchy.
+Although inheritance is not modeled formally, it is dealt with in the language implementation.
+
+The following sections describe modifications to the DOT rules.
+Only those rules with specific modifications are discussed~--
+for a discussion of other rules, see the DOT paper~\cite{dot}.
+
+
+
+\section{Qualifier Judgements} \label{sec-qualifier-judgments}
+
+I extend DOT to allow the environment $\Gamma$ to include judgments of the form:
+$$\Gamma \vdash qual(T) = Q..R$$
+where $qual$ is a mapping from types to qualifier bounds.
+If $T$ is a concrete type, then normally \mbox{$Q=R$}.
+If $T$ is an abstract type, then the lower qualifier bound~$Q$ may
+differ from the upper qualifier bound~$R$.
+
+The $qual$ mapping for a well-formed qualified type \mbox{$T@Q..R$} unconditionally produces
+\mbox{$Q..R$},
+as shown in rule~\ref{equ-t-q}.
+The addition of a qualifier to $T$ in a sense ``overrides'' any previous
+qualifier on $T$~-- that is, \mbox{$qual(T)$} and \mbox{$qual(T@Q..R)$} are not related
+in any way.
+%If a qualified type \mbox{$T@Q$} is well-formed, then \mbox{$qual(T@Q)$}
+%is equivalent to $Q$. 
+
+\begin{equation*}\tag{T-Q}\label{equ-t-q}
+\begin{array}{c}
+\Gamma \vdash T@Q..R\ {\bf wf} \\
+\midrule
+\Gamma \vdash qual(T@Q..R)=Q..R \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Additional qualifier judgments are needed to associate every type with
+specific qualifier bounds. These additional judgments follow.
+
+The top type $\top$ is associated with the top qualifier \mbox{$readonly$} (rule~\ref{equ-top-q}),
+and the bottom type $\bot$ is associated with the bottom qualifer \mbox{$fresh$} (rule~\ref{equ-bot-q}).
+
+\begin{equation*}\tag{$\top$-Q}\label{equ-top-q}
+\begin{array}{c}
+%\Gamma \vdash \top\ {\bf wf} \\
+%\midrule
+\Gamma \vdash qual(\top)=readonly..readonly \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{$\bot$-Q}\label{equ-bot-q}
+\begin{array}{c}
+%\Gamma \vdash \top\ {\bf wf} \\
+%\midrule
+\Gamma \vdash qual(\bot)=fresh..fresh \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Type intersection involves qualifier intersection (rule~\ref{equ-and-q}).
+Similarly, type union involves qualifier union (rule~\ref{equ-or-q}).
+
+\begin{equation*}\tag{$\land$-Q}\label{equ-and-q}
+\begin{array}{c}
+\Gamma \vdash qual(T)=Q..R\ ,\ qual(T')=Q'..R' \\
+\midrule
+\Gamma \vdash qual(T \land T')=Q \land Q' .. R \land R' \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{$\lor$-Q}\label{equ-or-q}
+\begin{array}{c}
+\Gamma \vdash qual(T)=Q..R\ ,\ qual(T')=Q'..R' \\
+\midrule
+\Gamma \vdash qual(T \lor T')=Q \lor Q' .. R \lor R' \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+A refined type is associated with the same qualifiers as the underlying type (rule~\ref{equ-rf-q}).
+
+\begin{equation*}\tag{RF-Q}\label{equ-rf-q}
+\begin{array}{c}
+\Gamma \vdash T\ \{ z \Rightarrow \overline{D} \}\ {\bf wf}\ ,\ qual(T)=Q..R \\
+\midrule
+\Gamma \vdash qual(T\ \{ z \Rightarrow \overline{D} \})=Q..R \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Class types are $mutable$ by default (rule~\ref{equ-lc-q}).
+Abstract types are associated with qualifier bounds.
+Rule~\ref{equ-la-q} associates the path-dependent abstract type \mbox{$p.L_a$}
+with a lower qualifier bound derived from the lower type bound $S$
+and an upper qualifier bound derived from the upper type bound $U$.
+
+\begin{equation*}\tag{LC-Q}\label{equ-lc-q}
+\begin{array}{c}
+\Gamma \vdash qual(p.L_c)=mutable..mutable \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{LA-Q}\label{equ-la-q}
+\begin{array}{c}
+\Gamma \vdash p \ni L_a : S..U\ ,\ qual(S)=Q..R\ ,\ qual(U)=Q'..R' \\
+\midrule
+\Gamma \vdash qual(p.L_a)=Q..R' \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+The inclusion of qualified types requires rules for performing subtype
+judgments involving qualified types.
+The required subtyping rules are \ref{equ-subtype-qual} and \ref{equ-qual-subtype}.
+
+\begin{equation*}\tag{$<:$-QUAL}\label{equ-subtype-qual}
+\begin{array}{c}
+\Gamma \vdash S <: T \\
+\midrule
+\Gamma \vdash S <: T@Q..R \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{QUAL-$<:$}\label{equ-qual-subtype}
+\begin{array}{c}
+\Gamma \vdash S <: T \\
+\midrule
+\Gamma \vdash S@Q..R <: T \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Notice that the added subtyping rules do not take qualifier annotations into account;
+ordinary subtype judgments (which ignore qualifiers) are distinct from
+subtype judgments that take qualifiers into account (see rule~\ref{equ-subq}).
+
+Rule~\ref{equ-subq} defines judgments of the form \mbox{$S <:_q T$}.
+%forms subtype judgments that take qualifiers into account.
+In general, $S$ is a {\em qualified subtype} of $T$ if \mbox{$S <: T$} and
+the qualifier bounds on $S$ conform to the qualifier bounds on $T$.
+
+\begin{equation*}\tag{$<:_q$}\label{equ-subq}
+\begin{array}{c}
+\Gamma \vdash S <: T\ ,\ R<:Q' \\
+\Gamma \vdash qual(S)=Q..R\ ,\ qual(T)=Q'..R' \\
+\midrule
+\Gamma \vdash S <:_q T \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Since rule~\ref{equ-subq} fails to form subtype judgments for
+equivalent abstract types where the upper and lower qualifier bounds
+differ, another rule~\ref{equ-subq-equiv} is introduced.
+Rule~\ref{equ-subq-equiv} forms the judgment \mbox{$S <:_q T$}
+where $S$ and $T$ are equivalent types, and the qualifier bounds on $S$
+are not wider than the qualifier bounds on $T$.
+%where $S$ and $T$ are equivalent types with equivalent qualifier bounds.
+(In general, \mbox{$S \equiv T$} implies \mbox{$S <: T$} and \mbox{$T <: S$},
+and similarly for qualifiers.)
+%and \mbox{$Q \equiv Q'$} implies \mbox{$Q <: Q'$} and \mbox{$Q' <: Q$}.)
+
+\begin{equation*}\tag{$<:_q$-EQUIV}\label{equ-subq-equiv}
+\begin{array}{c}
+\Gamma \vdash S \equiv T\ ,\ Q \equiv Q'\ ,\ R <: R' \\
+\Gamma \vdash qual(S)=Q..R\ ,\ qual(T)=Q'..R' \\
+\midrule
+\Gamma \vdash S <:_q T \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+%Any type may be annotated with a qualifier. Rule~\ref{equ-t-q-wf}
+%allows any well-formed type to remain well-formed when qualified.
+Generally, any qualified type is considered well-formed if its
+underlying type is well-formed.
+Rule~\ref{equ-t-q-wf} is the well-formedness rule for qualified types.
+
+\begin{equation*}\tag{T-Q-WF}\label{equ-t-q-wf}
+\begin{array}{c}
+\Gamma \vdash T\ {\bf wf} \\
+\midrule
+\Gamma \vdash T@Q..R\ {\bf wf} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+\section{Constructibility Judgements} \label{sec-constructibility-judgments}
+
+I extend DOT to include judgments of the form:
+$$\Gamma \vdash T\ {\bf constr}$$
+where $T$ is a type.
+The unmodified DOT included a syntactic distinction between concrete
+types and abstract types~-- concrete types were constructible, and
+abstract types were not.
+In the modified DOT, I elect instead to introduce constructibility
+judgements rather than syntactic restrictions,
+since environment-reference qualifier restrictions can prevent
+the construction of some concrete types.
+
+Rule~\ref{equ-lc-constr} defines constructibility of class selections.
+A type consisting of a class selection is considered constructible
+if the qualifier on the type of the selection path $p$ is compatible
+with the selected class's environment-reference qualifier.
+I introduce an auxiliary function $env$ that maps from
+class labels to environment-reference qualifiers.
+%That is, for a given class label $L_c$,
+%\mbox{$env(L_c)$} produces the class's environment-reference qualifier~$Q$.
+
+\begin{equation*}\tag{LC-CONSTR}\label{equ-lc-constr}
+\begin{array}{c}
+\Gamma \vdash p:T\ ,\ p.L_c\ {\bf wf} \\
+\Gamma \vdash qual(T)=Q..R\ ,\ R<:env(L_c) \\
+\midrule
+\Gamma \vdash p.L_c\ {\bf constr} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+The following rules produce constructibility judgements for other types.
+Rule~\mbox{\ref{equ-ref-constr}} states that if a type is constructible,
+then a refinement of that type is also constructible.
+Rule~\mbox{\ref{equ-and-constr}} states that the intersection of constructible types
+is itself constructible.
+Finally, rule~\mbox{\ref{equ-top-constr}} states that the top type~$\top$
+is always constructible.
+
+\begin{equation*}\tag{REF-CONSTR}\label{equ-ref-constr}
+\begin{array}{c}
+\Gamma \vdash T\ {\bf constr} \\
+\midrule
+\Gamma \vdash T\ \{ z \Rightarrow \overline{D} \}\ {\bf constr} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{$\land$-CONSTR}\label{equ-and-constr}
+\begin{array}{c}
+\Gamma \vdash T\ {\bf constr}\ ,\ T'\ {\bf constr} \\
+\midrule
+\Gamma \vdash T \land T'\ {\bf constr} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{$\top$-CONSTR}\label{equ-top-constr}
+\begin{array}{c}
+\Gamma \vdash \top\ {\bf constr} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+\section{Viewpoint Adaptation Operator} \label{sec-dot-vp-adapt}
+
+The viewpoint adapation operator is required for some of
+the modified type assignment judgements.
+Equation~\ref{op-viewpoint-qual} shows the viewpoint adaptation operator
+over qualifiers.
+
+\begin{equation*}\tag{$\triangleright$-QUAL}\label{op-viewpoint-qual}
+\begin{array}{llll}
+Q\ \triangleright\ R &=& R & \text{where}\ R = fresh \\
+   & & Q & \text{where}\ R = rothis \\
+	 & & Q \lor R & \text{otherwise} \\
+\end{array}
+\end{equation*}
+
+Since types in the modified DOT are associated with qualifier bounds
+rather than individual qualifiers, I also define the viewpoint adaptation
+operator over qualifier bounds (\mbox{\ref{op-viewpoint-qualbound}}).
+
+\begin{equation*}\tag{$\triangleright$-QUALBOUND}\label{op-viewpoint-qualbound}
+\begin{array}{llll}
+(Q..R) \triangleright (Q'..R')
+   &=& Q..R & \text{where}\ R'=rothis \\
+   & & R'..R' & \text{where}\ R'=fresh \\
+   & & (R \lor R') .. (R \lor R') & \text{where}\ Q'=R'\ \text{otherwise} \\
+   & & Q' .. (R \lor R') & \text{where}\ Q' \neq R'\ \text{otherwise} \\
+\end{array}
+\end{equation*}
+
+\section{Qualifier Substitution and Field-legal Qualifiers} \label{sec-aux-dot}
+
+
+
+\section{Modifications of Type Assignment Rules} \label{sec-type-assign}
+
+Three type assignment rules are modified from their original forms.
+These rules are reproduced here, with modifications in boxes.
+
+Rule~\ref{equ-new} is modified to construct constructible types only,
+rather than any concrete type.
+Furthermore, the condition \mbox{$S<:U$}, which requires that
+the lower bound of every type member conforms to its upper bound,
+is modified to \mbox{$S <:_q U$} to require that the lower qualifier bound similarly conforms
+to the upper qualifier bound.
+
+\begin{equation*}\tag{NEW}\label{equ-new}
+\begin{array}{c}
+y \notin fn(T') \\
+\Gamma \vdash \boxed{T\ {\bf constr}}\ ,\ T \prec_y \overline{L : S .. U},\overline{D} \\
+\Gamma, y : T \vdash \overline{S\ \boxed{<:_q}\ U}\ ,\ \overline{d} : \overline{D}\ ,\ t' : T' \\
+%\boxed{ \Gamma \vdash p:V\ ,\ p.L_c \ {\bf wfe} }\ ,\ p.L_c \prec_y \overline{L : S .. U},\overline{D} \\
+%\Gamma, y : p.L_c \vdash \overline{S <: U}\ ,\ \overline{d} : \overline{D}\ ,\ t' : T' \\
+%\boxed{\Gamma \vdash this : V\ ,\ canSubst(qual(V), env(T_c))} \\
+%\boxed{env(owningMethodOrCtor(y)) <: env(T_c)} \\
+%\boxed { qual(V) <: env(L_c) } \\
+\midrule
+\Gamma \vdash {\bf val}\ y =\ {\bf new}\ T\ \{\overline{d}\}\ ;\ t' : T' \\
+%\Gamma \vdash {\bf val}\ y =\ {\bf new}\ p.L_c\ \{\overline{d}\}\ ;\ t' : T' \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Rule~\ref{equ-sel}, the field selection rule,
+defines the type of the selection \mbox{$t.l$}, where $t$ is the left-hand-side term
+and $l$ is a field label. The expression \mbox{$t \ni l : T'$}
+means that term $t$ contains the declaration \mbox{$l : T'$} as one of its members.
+Originally, rule~\ref{equ-sel} assigned the type $T'$ to the selection \mbox{$t.l$},
+but the modified rule annotates the result with the viewpoint-adaptated qualifier bounds
+\mbox{$Q'..R \triangleright fieldAdj(R')$}.
+The $fieldAdj$ function is a mapping from qualifiers to field-legal qualifiers,
+and is defined as follows:
+\begin{equation*}\tag{FIELDADJ}\label{equ-fieldadj}
+\begin{array}{lcll}
+	fieldAdj(Q) &=& readonly & \text{if}\ Q = rothis \\
+	            &=& mutable & \text{if}\ Q = fresh \\
+							&=& Q & \text{otherwise} \\
+\end{array}
+\end{equation*}
+
+%The qualifier expression \mbox{$fieldAdj(R')$} ensures that the viewpoint adaptation
+%is performed with a field-legal qualifier.
+The $fieldAdj$ in this rule is not technically necessary if it is understood that
+all local variables are ``converted'' to fields when seen from within nested classes
+(see section~\ref{sec-local-fields}), in which case the application of $fieldAdj$
+in rule~\ref{equ-vdecl-wf} renders the $fieldAdj$ in this rule redundant.
+
+\begin{equation*}\tag{SEL}\label{equ-sel}
+\begin{array}{c}
+\Gamma \vdash \boxed{t : T,}\ t \ni l : T' \\
+\boxed{\Gamma \vdash qual(T)=Q..R\ , \ qual(T')=Q'..R'} \\
+\midrule
+\Gamma \vdash t.l : \boxed{T'@Q'..R \triangleright fieldAdj(R')} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Rule \ref{equ-msel}, the method selection (or invocation) rule, defines the type of
+the expression $t.m(t')$, where $t$ is the left-hand-side term,
+$m$ is a method label, and $t'$ is the term that produces the argument
+passed to $m$. For simplicity, the DOT calculus only defines methods that
+have a single parameter.
+The first modification of rule \ref{equ-msel} is the inclusion of the
+condition $canSubst(q, rcv(m))$, which prevents the formation of a type
+judgment where the qualifier of the left-hand-side term $t$ is incompatible with
+method $m$'s {\cd this} qualifier.
+
+\begin{equation*}\tag{MSEL}\label{equ-msel}
+\begin{array}{c}
+\Gamma \vdash \boxed{t: U,}\ t \ni m: S \rightarrow T \\
+\Gamma \vdash t': T'\ ,\ T'\ \boxed{<:_q}\ S \\
+\boxed{\Gamma \vdash qual(U)=Q..R\ ,\ qual(T)=Q'..R'\ ,\ canSubst(q, rcv(m))} \\
+\midrule
+\Gamma \vdash t.m(t'): \boxed{T@Q'..R \triangleright R'  _{q\ \triangleright\ u}} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Originally, rule \ref{equ-msel} defined the type of \mbox{$t.m(t')$}
+to be simply~$T$, the result type of $m$.
+The second modification of the rule performs viewpoint adaptation
+of the returned qualifier, i.e., \mbox{$q\ \triangleright\ u$}.
+
+
+
+
+
+
+\begin{comment}
+\section{Auxiliary Functions} \label{dot-aux-functions}
+
+I define a selection of auxiliary functions and operations to assist with
+the modification of the DOT calculus.
+These functions include $rcv$, $env$, $canSubst$, and $fieldAdj$.
+%In addition to the functions $qual$ and $withQual$ (defined above),
+%I also define the functions $rcv$, $env$, $canSubst$, and $fieldAdj$,
+%and a viewpoint adaptation operator over types.
+
+The $rcv$ function takes a method label $m$, and returns the qualifier
+on $m$'s receiver ({\cd this}) reference.
+Scala's object-oriented formulation makes it easier to treat the receiver parameter
+separately from other formal parameters (see the use of $rcv$ in rule \ref{equ-msel} below).
+
+The $env$ function maps class labels and concrete types to their
+associated environment references. The $env$ function is defined (section~\ref{dot-env-def})
+such that non-conforming type selections cannot be used to construct new objects.
+
+The $canSubst$ function (equation~\ref{equ-cansubst}) takes two qualifier arguments.
+It returns true if the first qualifier argument can substitute for the second qualifier argument
+in a method selection (see the method section rule~\ref{equ-msel}).
+In general, if the second qualifier is polymorphic (e.g. $rothis$),
+then the substitution is always possible.
+Otherwise, the substitution is possible only if the first qualifier is a subtype
+of the second qualifier.
+\begin{equation*}\tag{CANSUBST}\label{equ-cansubst}
+\begin{array}{lcll}
+	canSubst(q,r) &=& \text{true} & \text{if}\ r = rothis \\
+							&=& q <: r & \text{otherwise} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+The $fieldAdj$ function (equation~\ref{equ-fieldadj}) takes a qualifier $q$ as an argument.
+If $q$ is permissible as a field type qualifier, then $q$ is returned as-is.
+If $q$ is not permitted as a field type qualifier, then a more restrictive
+qualifier is returned.
+
+\begin{equation*}\tag{FIELDADJ}\label{equ-fieldadj}
+\begin{array}{lcll}
+	fieldAdj(q) &=& readonly & \text{if}\ q = rothis \\
+	            &=& mutable & \text{if}\ q = fresh \\
+							&=& q & \text{otherwise} \\
+\end{array}
+\end{equation*}
+
+%\begin{equation*}\tag{FIELDADJ}\label{equ-fieldadj}
+%\begin{array}{lcll}
+%	fieldAdj(T_q) &=& T_{readonly} & \text{if}\ q = rothis \\
+%	            &=& T_{mutable} & \text{if}\ q = fresh \\
+%							&=& T_q & \text{otherwise} \\
+%\end{array}
+%\end{equation*}
+\vspace{0.4cm}
+
+%For convenience, I extend the viewpoint adaptation operator to operate over types
+%(equation~\ref{equ-vp-typ}).
+%The viewpoint adaptation operator over types returns a type identical to its
+%right-hand-side type $U$, except with a qualifier that is viewpoint-adapted
+%with the left-hand-side qualifier.
+%\begin{equation*}\tag{VP-TYP}\label{equ-vp-typ}
+%\begin{array}{ccc}
+% %	T \triangleright U &=& withQual(U, qual(T) \triangleright qual(U)) \\
+%	T_q \triangleright U_r &=& U_{q \triangleright r} \\
+%\end{array}
+%\end{equation*}
+\end{comment}
+
+
+
+\section{Type Assignment Rules} \label{dot-type-assign}
+
+Of the four type assignment rules in DOT, two rules~-- \ref{equ-sel} and \ref{equ-msel}~--
+are modified here. Rule \ref{equ-sel}, the field selection rule,
+defines the type of the selection \mbox{$t.l$}, where $t$ is the left-hand-side term
+and $l$ is a field label. The expression \mbox{$t \ni l : T_r'$}
+means that term $t$ contains the declaration \mbox{$l : T_r'$} as one of its members.
+Originally, rule \ref{equ-sel} assigned the type $T'$ to the selection \mbox{$t.l$},
+but the modified rule qualifies the result with the viewpoint adaptation
+\mbox{$q\ \triangleright\ fieldAdj(r)$}.
+The qualifier expression \mbox{$fieldAdj(r)$} ensures that the viewpoint adaptation
+is performed with a field-legal qualifier.
+The $fieldAdj$ in this rule is not technically necessary if it is understood that
+all local variables are ``converted'' to fields when seen from within nested classes
+(see section~\ref{sec-local-fields}), in which case the application of $fieldAdj$
+in rule~\ref{equ-vdecl-wf} renders the $fieldAdj$ in this rule redundant.
+
+\begin{equation*}\tag{SEL}\label{equ-sel}
+\begin{array}{c}
+\Gamma \vdash \boxed{t : T_q,}\ t \ni l : T_r' \\
+\midrule
+\Gamma \vdash t.l : \boxed{T_{q\ \triangleright\ fieldAdj(r)}'} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Rule \ref{equ-msel}, the method selection (or invocation) rule, defines the type of
+the expression $t.m(t')$, where $t$ is the left-hand-side term,
+$m$ is a method label, and $t'$ is the term that produces the argument
+passed to $m$. For simplicity, the DOT calculus only defines methods that
+have a single parameter.
+The first modification of rule \ref{equ-msel} is the inclusion of the
+condition $canSubst(q, rcv(m))$, which prevents the formation of a type
+judgment where the qualifier of the left-hand-side term $t$ is incompatible with
+method $m$'s {\cd this} qualifier.
+
+\begin{equation*}\tag{MSEL}\label{equ-msel}
+\begin{array}{c}
+\Gamma \vdash \boxed{t: U_q,}\ t \ni m: S_r \rightarrow T_u \\
+\Gamma \vdash t': T_w'\ ,\ T_w' <: S_r \\
+\boxed{canSubst(q, rcv(m))} \\
+\midrule
+\Gamma \vdash t.m(t'): \boxed{T_{q\ \triangleright\ u}} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+Originally, rule \ref{equ-msel} defined the type of \mbox{$t.m(t')$}
+to be simply~$T$, the result type of $m$.
+The second modification of the rule performs viewpoint adaptation
+of the returned qualifier, i.e., \mbox{$q\ \triangleright\ u$}.
+
+The object creation rule~\ref{equ-new} is modified to reject object
+creation expressions where the type that would have been constructed
+has the bottom environment-reference qualifier \mbox{$\bot_e$}.
+As explained in section~\ref{dot-env-def}, the environment qualifier \mbox{$\bot_e$}
+is present on any concrete type formed using a non-conforming path-dependent
+type selection.
+The returned reference $y$ has the type $q$, which is normally {\em fresh}.
+
+\begin{equation*}\tag{NEW}\label{equ-new}
+\begin{array}{c}
+y \notin fn(T')\ \boxed{,\ env(T_q^c) \neq \bot_e} \\
+\Gamma \vdash T_q^c \ {\bf wfe}\ ,\ T_q^c \prec_y \overline{L : S_u .. U_w},\overline{D} \\
+\Gamma, y : T_q^c \vdash \overline{S_u <: U_w}\ ,\ \overline{d} : \overline{D}\ ,\ t' : T_r' \\
+%\boxed{ \Gamma \vdash p:V\ ,\ p.L_c \ {\bf wfe} }\ ,\ p.L_c \prec_y \overline{L : S .. U},\overline{D} \\
+%\Gamma, y : p.L_c \vdash \overline{S <: U}\ ,\ \overline{d} : \overline{D}\ ,\ t' : T' \\
+%\boxed{\Gamma \vdash this : V\ ,\ canSubst(qual(V), env(T_c))} \\
+%\boxed{env(owningMethodOrCtor(y)) <: env(T_c)} \\
+%\boxed { qual(V) <: env(L_c) } \\
+\midrule
+\Gamma \vdash {\bf val}\ y =\ {\bf new}\ T_q^c\ \{\overline{d}\}\ ;\ t' : T_r' \\
+%\Gamma \vdash {\bf val}\ y =\ {\bf new}\ p.L_c\ \{\overline{d}\}\ ;\ t' : T' \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+For an explanation of the other conditions on new object construction,
+see the DOT paper~\cite{dot}.
+
+\section{Method Declaration Subsumption} \label{dot-meth-decl-sub}
+
+The method declaration subsumption rule~\ref{equ-mdecl-sub}
+defines the conditions under which one method declaration is considered
+a subtype of another method declaration.
+For this rule, I add the condition \mbox{$rcv(m')<:rcv(m)$},
+which allows the judgment \mbox{$m<:m'$} only if
+the receiver qualifier of $m'$ is a supertype of the
+receiver qualifier of~$m$.
+As with other parameter qualifiers, receiver qualifier relationships are contravariant
+with method subsumption relationships.
+
+\begin{equation*}\tag{MDECL-$<:$}\label{equ-mdecl-sub}
+\begin{array}{c}
+\Gamma \vdash S_u' <: S_q\ ,\ T_r <: T_w' \\
+\boxed{rcv(m') <: rcv(m)} \\
+\midrule
+\Gamma \vdash (m : S_q \rightarrow T_r) <: (\boxed{m'} : S_u' \rightarrow T_w') \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+DOT also defines rules for subsumption of type declarations and value (field) declarations,
+but these subsumption judgments do not require any additional restrictions.
+
+
+
+\begin{comment}
+\section{Well-formedness of Type Selections} \label{dot-wf-type-sel}
+
+Type selections in DOT are path-dependent.
+DOT's well-formedness rules for type selection, \ref{equ-wf-type-sel} and \ref{equ-wf-type-sel-2},
+are modified to restrict selections of concrete types (classes) where
+the qualifier on the path used for the selection is not compatible with
+the class's environment reference qualifier.
+The condition \mbox{$q<:env(L)$} enforces the necessary restriction,
+where $q$ is the path qualifier and $L$ is the selected type.
+Abstract types cannot be constructed, so the \mbox{$isAbstract$} predicate is introduced
+to avoid unnecessarily restricting abstract type selections.
+%~-- a path-dependent type selection is prohibited only where $L$ refers to
+%a concrete class, and the path qualifier $q$ is not compatible with $L$'s environment qualifier.
+
+\begin{equation*}\tag{TSEL-WF$_1$}\label{equ-wf-type-sel}
+\begin{array}{c}
+\Gamma \vdash \boxed{p:V_q\ ,}\  p \ni L: S_r..U_w\ ,\ S_r\ {\bf wf}\ ,\ U_w\ {\bf wf} \\
+\boxed{ isAbstract(L) \lor q <: env(L) } \\
+\midrule
+\Gamma \vdash p.L\ {\bf wf} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+\begin{equation*}\tag{TSEL-WF$_2$}\label{equ-wf-type-sel-2}
+\begin{array}{c}
+\Gamma \vdash \boxed{p:V_q\ ,}\  p \ni L: \bot..U_w \\
+\boxed{ isAbstract(L) \lor q <: env(L) } \\
+\midrule
+\Gamma \vdash p.L\ {\bf wf} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+The added restrictions in rules~\ref{equ-wf-type-sel} and~\ref{equ-wf-type-sel-2}
+are perhaps a bit more restrictive than necessary.
+Preservation of reference immutability guarantees only requires restriction of
+type selections that are ultimately used in new object constructions.
+However, the extra modifications required to formally allow more permissive
+type-selection rules in DOT may not be worth the added complexity.
+
+% Environment-reference consistency requirements for inner classes?
+
+\section{Well-formedness of Method Declarations} 
+% Environment-reference consistency requirement?
+
+\end{comment}
+
+\section{Well-formedness of Field Declarations} 
+
+A condition is added to rule~\ref{equ-vdecl-wf} to prevent
+the declaration of fields with type qualifiers that are not allowed on fields.
+The field can be declared only if the qualifier $q$ on type \mbox{$T_q$}
+is unmodified by the \mbox{$fieldAdj$} function.
+
+\begin{equation*}\tag{VDECL-WF}\label{equ-vdecl-wf}
+\begin{array}{c}
+	\Gamma \vdash T_q\ {\bf wf} \\
+	\boxed{q = fieldAdj(q)} \\
+	\midrule
+	\Gamma \vdash l: T_q\ {\bf wf} \\
+\end{array}
+\end{equation*}
+
+\vspace{0.4cm}
+
+
+
+\section{Type Qualifiers Do Not Introduce Type Unsoundness} \label{dot-qual-typesafe}
+
+The addition of type-qualifier-related modifications to DOT cannot compromise
+the type safety of DOT.
+That is: if all programs accepted by DOT are type-safe, then all programs
+accepted by the modified DOT are type-safe.
+The arguments for the foregoing statement are discussed below.
+
+\subsubsection{Associating types with qualifiers does not change the meaning
+of any DOT program.}
+In the absence of any other modifications, adding a qualifier~$q$ to every type
+$T$ does not change the meaning of any program.
+Although the types $T_q$ and $T_r$ become distinguishable if their qualifiers
+$q$ and $r$ are distinguishable, in the absence of other modifications
+no rule in DOT relies on the distinction between $T_q$ and $T_r$.
+Therefore, in the absence of other modifications, any $T_q$ is freely interchangable
+with any $T_r$ for any given type $T$ in any program $P$ without changing $P$'s meaning.
+
+\subsubsection{No modification described in this chapter allows acceptance of a program
+that would be rejected by the original DOT.}
+The modifications to DOT rules fall into two categories:
+first, added constraints on accepted judgments (i.e., extra conditions above the bar on rules),
+and second, viewpoint adaptation of result-type qualifiers.
+Modifications of the first category can eliminate judgments that would have
+been accepted by the unmodified DOT calculus, but adding extra constraints
+on judgments cannot cause a judgment to be accepted where the unmodified DOT calculus
+would have rejected it.
+Therefore, no modifications of the first category can cause acceptance of a program
+that would have been rejected by the original DOT.
+
+Modifications of the second category do not change the form or underlying types
+of any judgment. The only changes caused by modifications of the second category
+are to the qualifiers on those types.
+Since one qualifier can be substituted for another without changing program meaning
+with respect to the original DOT, then if the original DOT accepts a judgment
+containing a qualified type $T_q$, it also accepts that same judgment where
+any other qualifier $r$ is substituted for $q$.
+Viewpoint adaptation simply substitues one qualifier for another without changing
+the underlying type.
+Therefore, no modifications of the second category can cause acceptance
+of a program that would have been rejected by the original DOT.
+
+\begin{comment}
+\subsubsection{No qualifier-related functions or operations are non-terminating.}
+
+The viewpoint adaptation operator~$\triangleright$ and all auxiliary functions
+terminate in constant time except for $env$.
+Although $env$ is defined recursively, it always terminates for an input
+program of finite size.
+
+I assume here that obtaining the environment qualifier of any class label
+\mbox{($env(L^c)$)} is a finite-time operation.
+\mbox{$env(p.L^c)$} ...
+\end{comment}
+
+\section{Concerns Not Addressed by DOT} \label{dot-unaddressed}
+
+DOT intentionally does not attempt to model inheritance
+(that is, the construction of a nominal class hierarchy).
+The authors of DOT considered inheritance an unnecessary complication
+with respect to proving type safety~\cite{dot}.
+The only inheritance-related correctness consideration in the present work
+is the covariance of environment references (see section~\ref{sec-env-covariance}),
+which must be checked at compile time.
+
+Furthermore, the described modification of DOT does not model environment-reference
+consistency requirements (see section~\ref{sec-env-consistency}).
+These consistency requirements involve checking that receiver-reference
+and environment-reference qualifiers are consistent with the environment
+reference qualifiers of enclosing classes.
+It seemed to me that the inclusion of environment-reference consistency checking
+would unnecessarily complicate the formalism;
+however, consistency checking must still be included in the implementation.

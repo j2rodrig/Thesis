@@ -1,0 +1,155 @@
+\section{Accessing Enclosing Environments}
+
+The determination of method purity depends on more than just the types of explicit parameters. In Dotty, Java, and other object-oriented languages, every method has an implicit parameter (usually {\cd this}) that refers to the method's receiver object. For a method to be pure, none of its parameters (including the receiver parameter) can be mutable.
+
+Methods and classes can be arbitrarily nested in Dotty, and methods can read from and write to fields and local variables declared in any enclosing scope.
+
+In contrast, Java has much tighter restrictions on what nested classes are allowed to do. Although previous work on reference immutability offers satisfactory solutions given the restrictions of Java, there is not (to my knowledge) any prior work that adequately addresses the difficulties that arise from the relatively unrestricted nesting rules of Dotty.
+
+
+
+\begin{comment}
+2. traits have uniquely-named outer-reference fields.
+3. methods are defined as classes (logic goes in the constructor, locals become fields,)
+4. calls to methods become pairs of construct / field read.
+5. the `this' read becomes a read of an outer field
+6. construction of classes involves passing the outer reference as a param
+Order of transformation: Innermost methods first?
+\end{comment}
+
+\subsection{Representation of Method Definitions as Class Definitions}
+
+The first step I take is to represent method definitions as class definitions. This change in representation helps define what happens semantically when (e.g.) a nested class refers to local variables or parameters of an enclosing method. Furthermore, by representing method definitions as class definitions, the number of distinct cases that must be addressed later in the discussion is reduced. The latter discussion only needs a treatment of the class-inside-class case---rather than discussing method-inside-method, method-inside-class, class-inside-method, and class-inside-class as separate cases.
+
+A key insight here is that a method's local variables need not be stored on the stack; the high-level semantics of the language are preserved regardless of whether local variables exist on the stack or the heap. In fact, in some cases it it necessary to store local variables on the heap---in particular, heap storage is necessary when those local variables remain visible (and mutable!) to an inner class instance after the method returns.
+
+A second key insight is that object construction is more powerful than ordinary method invocation. Object construction involves both an allocation of memory and an invocation of an initializer method. Ordinary method invocation also allocates memory, typically on the stack. The key semantic distinction is that an object survives the completion of its initializer, whereas the memory allocated for an ordinary method call is typically lost immediately upon completion. It is therefore reasonably straightforward to use object construction to simulate ordinary method invocation, but not vice versa.
+
+Consider the general method form shown in listing~\ref{lst:meth-1}. Method~{\cd m} inside class~{\cd C} takes a series of parameters~{\cd \ovr{x}} and returns a result of type~{\cd T}. (The overline notation~{\cd \ovr{x}} means that~{\cd x} can represent any of a series of a series of names, similar to the overline notation in Featherweight Java.) Method~{\cd m} initializes a set of local variables~{\cd \ovr{y}} to the results of a set of expressions~{\cd \ovr{e}}. The result of~{\cd m} is the final expression~{\cd e}. (In practice, {\cd m} may also contain some number of statements, which I omit here.)
+
+Also shown in listing~\ref{lst:meth-1} is a call to~{\cd m}. A series of expressions~{\cd \ovr{e}} are evaluted, and their results bound to the parameters~{\cd \ovr{x}}. The result is assigned to the field~{\cd y}.
+
+\begin{lstlisting}[float=htbp, caption={Method Transformation 1}, label={lst:meth-1}]
+class C {
+	def m((*\ovr{x}*): (*\ovr{S}*)): T = {
+		var (*\ovr{y}*) = (*\ovr{e}*)
+		e
+	}
+
+	var y = m((*\ovr{e}*))
+}
+\end{lstlisting}
+
+Adding an explicit {\cd this} reference, the definition and call of~{\cd m} are as shown in listing~\ref{lst:meth-2}. The type of {\cd this} in~{\cd m} is~{\cd C}, and \mbox{{\cd C}'s} {\cd this} is passed explicitly in the call to~{\cd m}.
+
+\begin{lstlisting}[float=htbp, caption={Method Transformation 2 (Explicit This)}, label={lst:meth-2}]
+class C {
+	this =>
+
+	def m(this: C, (*\ovr{x}*): (*\ovr{S}*)): T = {  // explicit ``this'' parameter
+		var (*\ovr{y}*) = (*\ovr{e}*)
+		e
+	}
+
+	var y = m(this, (*\ovr{e}*))           // explicit pass of ``this'' to method
+}
+\end{lstlisting}
+
+The key transformation is transformation of the method definition into a class definition. See listing~\ref{lst:meth-3}.
+The parameters of method~{\cd m} become parameters of the constructor of class {\cd \und M}. (I use the underscore \mbox{({\cd \und})} to distingush synthetic names from programmer-specified names. Names beginning with the underscore are assumed to be non-conflicting with any other names.)
+The parameters and local variables of~{\cd m} become fields of~{\cd \und M}, which makes these parameters and local variables accessible to inner methods and classes.
+All computations performed by~{\cd m} are performed by the constructor of~{\cd \und M}, and reads and writes of local variables become reads and writes of fields.
+The result of~{\cd m} is stored in the field {\cd \und result}.
+
+\begin{lstlisting}[float=htbp, caption={Method Transformation 3 (Closure)}, label={lst:meth-3}]
+class C {
+	this =>
+
+	class _M(_this: C, (*\ovr{\und x}*): (*\ovr{S}*)) {  // method parameters become class parameters
+		var _outer = _this         // outer reference stored as field
+		var (*\ovr{x}*) = (*\ovr{\und x}*)                 // parameters stored as fields
+		var (*\ovr{y}*) = (*\ovr{e}*)                  // local variables stored as fields
+		var _result: T = e         // result is stored for post-construction retrieval
+	}
+
+	var y = (new _M(this, (*\ovr{e}*)))._result  // method call becomes constructor call
+}
+\end{lstlisting}
+
+The method call in listing~\ref{lst:meth-2} becomes a constructor call in listing~\ref{lst:meth-3}. 
+
+
+
+
+\begin{lstlisting}[float=htbp, caption={Method Transformation 4 (Flattening)}, label={lst:meth-4}]
+class C { this =>
+	val y = (new _M(this, x))._result
+}
+class _M(this: C, _x: S) = {
+	val _outer = this
+	val x = _x
+	...
+	val _result = resultExpr
+}
+\end{lstlisting}
+
+
+
+\subsection{Classes Within Classes}
+
+\begin{lstlisting}
+class C {
+	...
+	class D(val outer: C) {
+		...
+	}
+	...
+}
+\end{lstlisting}
+
+\subsection{Methods Within Classes}
+
+\begin{lstlisting}
+class C {
+	...
+	def m(this: C) = {
+		...
+	}
+	...
+}
+\end{lstlisting}
+
+\subsection{Methods Within Methods}
+
+\begin{lstlisting}
+class C {
+	def m() = {
+		def n() = {
+			C.this
+			...
+		}
+		var x = ...
+		mResultExpr
+	}
+}
+\end{lstlisting}
+
+\begin{lstlisting}
+class C {
+	def m(this: C) {
+
+		class M(val outer: C) {
+			def n(this: M) {
+				this.outer
+				...
+			}
+			var x = ...
+			val _result = mResultExpr
+		}
+
+		val mClosure = new M(this)
+		mClosure._result
+	}
+}
+\end{lstlisting}
+

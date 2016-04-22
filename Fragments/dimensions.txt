@@ -1,0 +1,12 @@
+DIMENSIONS:
+
+On what I can do: through a reference; to a reference;
+On what others can do: through a reference; to a reference.
+
+What can be done to a reference:
+- duplicate;
+- relinquish (as in a destructive read or overwrite or other release).
+
+What can be done through a reference:
+- read;
+- mutate.

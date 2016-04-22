@@ -1,0 +1,1001 @@
+% all language structures with mutable/readonly
+%  0. argument for conceptual simplicity over optimization
+%  1. field selection
+%  2. method selection
+%  3. object construction and type selection
+%  4. environment references and closures and package objects
+%  5. accessor methods
+
+This chapter describes a simple reference immutability system for the Scala language.
+Reference immutability is defined here as a system of type qualifiers (see sec.~\ref{sec-type-qualifiers}) that restrict mutations on certain objects.
+To preserve reference immutability guarantees, viewpoint adaptation is performed
+for field selections (sec.~\ref{sec-field-sel}) and method selections (sec.~\ref{sec-method-sel}).
+
+Unlike previous work~\cite{javari,reim} for the Java languge, the current work
+addresses certain new concerns that arise in the Scala language.
+These concerns include the handling of accessor methods (sec.~\ref{sec-accessor-method-sel}),
+abstract type bounds (sec.~\ref{sec-vp-bounded}),
+and arbitrarily nested classes and methods (sec.~\ref{sec-env-ref}).
+Environment reference qualifiers, which are introduced to
+reasonably handle nested classes, limit what can be done
+with a reference that refers to an object in an enclosing environment.
+Environment reference qualifiers also restrict the construction of new
+objects (see sec.~\ref{sec-type-sel}).
+
+%Previous work for the Java language~\cite{javari,reim} discussed the restriction
+%of mutations and the viewpoint adaptation of field selections and method selections.
+%The current work discusses additional concerns arising from Scala-like languages,
+%including accessor method selection (sec.~\ref{sec-accessor-method-sel}),
+%environment references (which are necessary because of arbitrary nesting of classes and methods),
+%and path-dependent types (and associated restrictions on construction).
+Later chapters discuss extensions to the basic system (which include qualifier polymorphism),
+qualifier defaults, and
+practical considerations associated with closures.
+
+
+\section{Type Qualifiers} \label{sec-type-qualifiers}
+
+The current work defines reference immutability in terms of {\em type qualifiers}.
+A {\em type qualifier} is associated with an underlying type,
+and is normally expressed in code as an annotation of that underlying type.
+Qualifiers add restrictions to what constitutes an acceptable code expression.
+For any given piece of code to compile without errors,
+it must be both type-correct and qualifier-correct.
+
+The simplest form of reference immutability is a system which supports
+the qualifying of every reference as either {\em readonly} or {\em mutable}.
+{\em Readonly} references do not allow their referent objects to be mutated.
+Listing~\ref{lst-readonly} shows how {\em readonly} restricts modification of a field {\cd f}
+(underlying types are omitted).
+Value types may also be qualified as {\em mutable} or {\em readonly},
+but these qualifiers have no meaning for value types.
+
+\begin{lstlisting}[caption={Mutation Restriction},float={htp},label={lst-readonly}]
+var x: @readonly = ...
+var y: @mutable = ...
+x.f = ...   // Error
+y.f = ...   // OK
+\end{lstlisting}
+
+
+To protect the {\em readonly} guarantee, the compiler will not accept
+assignment of {\em readonly}-qualified references into {\em mutable}-qualified
+fields or variables. Listing~\ref{lst-assign} illustrates the basic assignment restriction
+(underlying types are omitted).
+\begin{lstlisting}[caption={Assignment Restriction},float={htp},label={lst-assign}]
+var x: @readonly = ...
+var y: @mutable = ...
+x = y   // OK
+y = x   // Error
+\end{lstlisting}
+
+Since {\em readonly} is more restrictive than {\em mutable},
+the relationship between {\em readonly} and {\em mutable}
+may be understood as a subtype relationship.
+Specifically, {\em mutable} is a subtype of {\em readonly}:
+$$mutable <: readonly$$
+
+%The following sections describe the mechanisms used to protect the {\em readonly} guarantee
+%in this simple system.
+
+%Additional qualifiers offering increased precision and flexibility are
+%discussed in later sections.
+
+% What's a type qualifier
+% Qualifiers are inferred when types are inferred
+% Qualifiers restrict acceptable subtype judgements; (during separate phase)
+
+
+\section{Field Selection} \label{sec-field-sel}
+
+Reading a field of an object, or {\em field selection}, requires {\em viewpoint adaptation}
+to ensure the preservation of the {\em readonly} guarantee.
+Specifically, a field with a type that is qualified {\em mutable} should be treated as
+{\em readonly} when accessed via a {\em readonly} reference.
+Listing~\ref{lst-field-sel} shows an example of viewpoint adaptation on field selection.
+Field {\cd f} is assumed to be {\em mutable}.
+
+\begin{lstlisting}[caption={Field Selection},float={htp},label={lst-field-sel}]
+var x: @readonly = ...
+var y: @mutable = ...
+x.f.f = ...   // Error: x.f is readonly
+y.f.f = ...   // OK
+\end{lstlisting}
+
+The adaptation of qualifiers on selections is defined by the {\em viewpoint adaptation operator},
+which is symbolized by the right-facing triangle~$\triangleright$.
+The simple form of the viewpoint adaptation operator, which is defined for
+the {\em mutable} and {\em readonly} qualifiers, is shown in figure~\ref{fig-vp-simple}.
+
+\begin{figure}[htp]
+	\center
+	\begin{tabular}{ccccc}
+		Left & & Right & & Result \\
+		\hline
+		q & $\triangleright$ & {\em mutable} & = & q \\
+		\_ & $\triangleright$ & {\em readonly} & = & {\em readonly} \\
+	\end{tabular}
+	\caption{The Viewpoint Adaptation Operator $\triangleright$, Simple Form}
+	\label{fig-vp-simple}
+\end{figure}
+
+Figure~\ref{fig-vp-simple} states that the selection of a {\em mutable}
+field results in whatever qualifier was on the reference used to reach the object,
+and that the selection of a {\em readonly} field always results in {\em readonly}.
+The symbol q represents either qualifier, and the underscore (\_) means ``don't care.''
+
+The viewpoint adaptation operator is conservative~-- field selection
+cannot produce a reference with a qualifier that is more permissive
+than the field's given qualifier.
+
+\section{Method Selection} \label{sec-method-sel}
+
+Calling a method of an object (or {\em method selection}) involves
+viewpoint adaptation of the method's result qualifier.
+Method selection uses the same viewpoint adaptation operator as field selection~--
+if the reference to the object (or {\em receiver reference})
+is {\em readonly}, then the qualifier on the returned result is also
+forced to be {\em readonly}.
+Conservatively, viewpoint adaptation is required because the method may return
+a field of the receiver object.
+
+Listing~\ref{lst-method-sel} shows an example of method selection.
+Method {\cd m} in class {\cd C} returns a {\em mutable} result,
+but selecting {\cd m} through a {\em readonly} reference must produce
+a {\em readonly} result after viewpoint adaptation.
+
+\begin{lstlisting}[caption={Method Selection},float={htp},label={lst-method-sel}]
+class C {
+	def m(): @mutable = ...
+}
+var x: @readonly = new C
+var y: @mutable = new C
+x.m().f = ...   // Error: x.m() has a readonly result
+y.m().f = ...   // OK
+\end{lstlisting}
+
+Successful method selection also requires the receiver-reference qualifier to
+be compatible with the qualifier on the {\cd this} reference inside the method.
+If the method is expecting a {\em mutable} {\cd this}, then it cannot be called
+with a {\em readonly} receiver reference.
+Conservatively, receiver compatibility is required because a method
+with a {\em mutable} {\cd this} may modify a field of the receiver object.
+
+Listing~\ref{lst-method-sel-this} shows an example of receiver-reference compatibility.
+The {\cd this} parameter on method {\cd m} is shown explicitly for clarity
+(Scala does not support explicit {\cd this} parameters).
+Selecting {\cd m} through the {\em readonly} {\cd x} produces an error.
+If {\cd m}'s {\cd this} parameter was {\em readonly} instead, then there would be
+no receiver-reference compatibility errors.
+
+\begin{lstlisting}[caption={Method Selection, {\cd this} Compatibility},float={htp},label={lst-method-sel-this}]
+class C {
+	def m(this: @mutable) = ...
+}
+var x: @readonly = new C
+var y: @mutable = new C
+x.m()   // Error: x is readonly, m expects mutable
+y.m()   // OK
+\end{lstlisting}
+
+
+\section{Accessor Method Selection} \label{sec-accessor-method-sel}
+
+The viewpoint adaptation of method selection also applies to {\em accessor methods}.
+Scala has a built-in notion of accessor methods, which include
+{\em getters} and {\em setters}. Getters and setters are meant to return and set (respectively)
+elements of the object state.
+
+A field declaration in Scala entails the automatic generation of accessor methods
+for that field, which allow a derived class to declare fields that override
+accessor-like methods in its base class, and vice versa. For example,
+in listing~\ref{lst-accessor-methods}, class {\cd C} declares getter and setter
+methods that are overridden in derived class {\cd D}.
+More precisely, the declaration of field {\cd f} causes the automatic creation of
+a getter method that returns the contents of the field,
+and a setter method that mutates the field.
+
+\begin{lstlisting}[caption={Accessor Methods},float={htp},label={lst-accessor-methods}]
+class C {
+	def f: @mutable = ...               // getter-like method: no parameter list
+	def f_= (x: @mutable): Unit = ...   // setter-like method: name ends with suffix: _=
+}
+class D extends C {
+	var f: @mutable = ...               // field overrides accessor-like methods
+}
+\end{lstlisting}
+
+Accessor methods a subject to the same viewpoint adaptation rules as ordinary methods.
+A call to the getter {\cd f} in listing~\ref{lst-accessor-methods} results in a {\em readonly}
+result if the receiver reference is {\em readonly}, and a {\em mutable} result
+if the receiver reference is {\em mutable}, removing the distinction between
+a direct field read and a call to a getter-like method.
+Setter methods do not return results, so viewpoint adaptation has no effect.
+
+Getter methods should be side-effect-free by default, and
+setter methods should allow mutation within their immediately-enclosing classes only.
+See chapter~\ref{chap-defaults}
+on default qualifier assignments for a discussion of default receiver-reference qualifiers
+on accessor-like methods.
+
+Notably, the type of the setter method's parameter correctly restricts
+the references that can be assigned to the field.
+In listing~\ref{lst-accessor-methods}, the parameter to the setter-like method {\cd f\_=}
+has the same {\em mutable} qualifier as the field declaration {\cd f} in class {\cd D},
+preventing the method from accepting a reference that could not be safely written into
+the field.
+
+\section{Viewpoint Adaption of Bounded Types} \label{sec-vp-bounded}
+
+Scala supports bounded abstract types.
+A bounded type has a lower bound and an upper bound;
+a concrete instantiation of a bounded type must be between that type's lower and upper bounds.
+The same rule applies to the qualifiers on the bounded type's bounds~--
+the qualifier on the concrete instantiation must be
+at least as restrictive as the lower bounds' qualifier, but no more restrictive
+than the upper bounds' qualifier.
+
+\begin{lstlisting}[caption={Bounded Type Instantiation},float={htp},label={lst-bounded-inst}]
+class C[T] { }                     // T has maximal bounds: @mutable .. @readonly
+class D[T <: @mutable] { }         // T is at most @mutable
+class E[T >: @readonly] { }        // T is at least @readonly
+class F extends C[@mutable] { }    // OK
+class G extends C[@readonly] { }   // OK
+class H extends D[@readonly] { }   // Error: @readonly is not <:@mutable
+class I extends E[@mutable] { }    // Error: @mutable is not >:@readonly
+\end{lstlisting}
+
+Listing~\ref{lst-bounded-inst} shows classes {\cd C}, {\cd D}, and {\cd E} each with
+an abstract type member {\cd T} (some underlying type expressions omitted).
+Class {\cd C}'s abstract type member {\cd T} has undeclared bounds (which default to the
+maximal bounds {\em mutable} and {\em readonly}).
+The {\cd T} in class {\cd D} has an upper bound of {\em mutable},
+and the {\cd T} in class {\cd E} has a lower bound of {\em reaodnly}.
+Either {\em mutable} or {\em readonly} can be substituted for {\cd T} in {\cd C},
+but only {\em mutable} can substitute for {\cd T} in {\cd D},
+and only {\em readonly} can substitute for {\cd T} in {\cd E}.
+
+Viewpoint adaptation of a bounded type modifies the upper bound on that type,
+leaving the lower bound unchanged.
+Figure~\ref{fig-vp-bounded} shows the definition of the viewpoint adaptation operator
+where one or both operands are bounded types
+(q, l, and u are arbitrary qualifiers, and the notation \mbox{(l .. u)} refers to a qualifier bound
+of at least l and at most u).
+
+\begin{figure}[htp]
+	\center
+	\begin{tabular}{ccccc}
+		Left & & Right & & Result \\
+		\hline
+		q & $\triangleright$ & (l .. u) & = & (l .. q $\triangleright$ u) \\
+		(l .. u) & $\triangleright$ & q & = & u $\triangleright$ q \\
+		(\mbox{l$_1$} .. \mbox{u$_1$}) & $\triangleright$ & (\mbox{l$_2$} .. \mbox{u$_2$}) & = &
+			(\mbox{l$_2$} ..
+				\mbox{u$_1$} $\triangleright$ \mbox{u$_2$}) \\
+	\end{tabular}
+	\caption{The Viewpoint Adaptation Operator $\triangleright$, Bounded Types}
+	\label{fig-vp-bounded}
+\end{figure}
+
+Viewpoint adaptation of the upper bound prevents violation of reference immutability
+restrictions. For example,
+where the upper bound of a type is {\em readonly}, mutations are prevented~--
+regardless of the lower bound.
+
+Leaving the lower bound unchanged prevents the qualifier bounds on an abstract type
+from being narrowed due to viewpoint adaptation (although viewpoint adaptation may
+widen the qualifier bounds where appropriate).
+The argument for not narrowing qualifier bounds is an argument for consistency:
+if it is possible to substitute a type with a particular qualifier for a given
+abstract type, then all uses of that abstract type should have bounds wide enough
+to include the substituting type's qualifier.
+%As declared, an abstract type has specific qualifier bounds~--
+%for consistency, all uses of that abstract type should have bounds that are no narrower than
+%declared.
+For example, if a {\em mutable}-qualified type can be substituted for an abstract type {\cd T},
+then all uses of {\cd T} should have a lower bound that is no less than {\em mutable}.
+
+
+% Why not adjust the lower bound?
+%By adjusting the upper bound, reference immutability restrictions are preserved~--
+%a bounded type with an upper bound of {\em readonly} has the same mutation restrictions
+%as an ordinary type qualified by {\em readonly}.
+%By adjusting the upper bound only, the viewpoint-adapted bounds remain compatible
+%with the original bounds in most cases.
+%The only condition under which incompatibility occurs is where the viewpoint adaptation
+%causes the upper bound to become higher (more restrictive~-- viewpoint adaptation
+%should never result in a less-restrictive upper bound).
+
+\begin{lstlisting}[caption={Viewpoint Adaptation of Bounded Types},float={htp},label={lst-vp-bounded}]
+class C[T] {
+	var v: T
+	def getV(this: @readonly): T = this.v   // `unsafe' viewpoint adaptation
+}
+class D extends C[@mutable] { }   // instantiates T as @mutable
+val d = new D
+val d_r = new D: @readonly
+d.getV.f = ...     // OK: d.getV is @mutable
+d_r.getV.f = ...   // Error: d_r.getV is @readonly
+\end{lstlisting}
+
+Listing~\ref{lst-vp-bounded} shows an example of the viewpoint adaptation of
+a bounded type. The {\cd getV} method returns the contents of field {\cd v},
+viewpoint-adapted with a {\em readonly} {\cd this}.
+Both {\cd v} and method {\cd getV} have type {\cd T}, which has the bounds
+({\em mutable}~.. {\em readonly}).
+Although the viewpoint adaptation is technically unsafe (since the lower bound
+remains {\em mutable} despite a {\em readonly} {\cd this}),
+no violation of reference immutability occurs in this example.
+The method {\cd getV} itself cannot mutate through {\cd v}, since
+its upper qualifier bound remains {\em readonly}.
+Even if a derived class ({\cd D}) instantiates {\cd T} to a type
+qualified by {\em mutable}, neither {\cd v} nor the result of {\cd getV}
+can be mutated when accessed through a {\em readonly} reference ({\cd d\_r}).
+
+\begin{lstlisting}[caption={Bounded Types and the Getter Class},float={htp},label={lst-vp-bounded-2}]
+class C[T] {
+	var v: T
+	class Getter(env: @readonly) {
+		def getV: T = this.env.v     // `unsafe' viewpoint adaptation
+	}
+}
+class D extends C[@mutable] { }  // instantiates T as @mutable
+val d_r = new D: @readonly
+val d_r_g = new d_r.Getter
+d_r_g.getV.f = ...               // OK: d_r_g.getV returns @mutable
+\end{lstlisting}
+
+However, there is a way to obtain a {\em mutable} reference through a {\em readonly}
+reference. Listing~\ref{lst-vp-bounded-2} introduces a {\em getter class},
+a class that cannot mutate, but can return, elements of its enclosing class.
+The getter class {\cd Getter} has a {\em readonly} {\em environment reference}
+(see section~\ref{sec-env-ref}) that does not allow methods within {\cd Getter}
+to mutate fields of the enclosing class through {\cd this}.
+The {\cd Getter} class does have a method {\cd getV} that returns a field of
+its enclosing class. Since the type of field {\cd v} is {\cd T} (that is,
+with qualifier bounds ({\em mutable}~.. {\em readonly})),
+the result type of {\cd getV} is the same as {\cd v} despite access through
+a {\em readonly} environment reference.
+When an instance of the {\cd Getter} class is constructed (fresh reference {\cd d\_r\_g}),
+the call to {\cd getV} from {\cd d\_r\_g} produces a {\em mutable} result.
+Although it may seem surprising at first to get a {\em mutable} result
+when starting from a {\em readonly} reference ({\cd d\_r}),
+this behaviour is not technically a violation of reference immutability.
+What has happened in this example is that a fresh reference has been created
+to refer to a {\em mutable}-qualified field.
+In general, reference immutability does not prevent the simultaneous existence of
+a {\em readonly} reference and a {\em mutable} reference to the same object.
+
+Listing~\ref{lst-vp-bounded-2} is able to produce a {\em mutable} reference because
+of the simultaneous coexistence of a number of conditions.
+First, that class {\cd C} has an abstract type member {\cd T} with a {\em mutable}
+lower bound and a {\em readonly} upper bound.
+The {\em mutable} lower bound allows a derived class to replace {\cd T} with
+a {\em mutable}-qualified type.
+The {\em readonly} upper bound allows the type of field {\cd v}
+to remain unmodified under viewpoint adaptation.
+Second, that class {\cd C} contains a getter class (either an inner class
+or a type refinement), and that the getter class
+contains a method that returns a reference of type {\cd T}.
+Third, the getter class has a {\em readonly} environment reference, which
+allows it to be constructed through a {\em readonly} access path (see section~\ref{sec-type-sel}
+on path-dependent restrictions on object construction).
+If any one of these conditions were not met, then listing~\ref{lst-vp-bounded-2}
+could not produce a {\em mutable} reference from a {\em readonly} reference.
+
+
+\begin{comment}
+\begin{lstlisting}[caption={An Iterator over a Collection},float={htp},label={lst-iterator}]
+class List[T](env: @readonly) {
+	val head: T
+	val tail: List[T]
+	
+	class Iterator(env: @readonly) {
+		var current = List.this    // List.this == Iterator.env
+		def next(this: @*@mutEnv[Iterator]*@): T = {
+			val t = current.head     // `unsafe' viewpoint adaptation
+			current = current.tail
+			t
+		}
+	}
+}
+val ls_r = new List[@readonly]
+val ls_m = new List[@mutable]
+val it_r = new ls_r.Iterator   // produces an Iterator over @readonly
+val it_m = new ls_m.Iterator   // produces an Iterator over @mutable
+... = it_r.next                // produces a @readonly element
+... = it_m.next                // produces a @mutable element
+\end{lstlisting}
+\end{comment}
+
+\section{Environment References} \label{sec-env-ref}
+
+An inner class accesses the fields and methods of its enclosing class via
+an environment reference.
+Every class has an environment reference.
+For example, listing~\ref{lst-enclosing-env} shows
+an inner class {\cd D} with an explicit environment-reference parameter
+that refers to an enclosing class {\cd C}.
+Access to class {\cd C}'s field {\cd f} occurs via {\cd D}'s environment reference,
+which is accessed through {\cd D}'s {\cd this} reference.
+\begin{lstlisting}[caption={Accessing an Enclosing Environment},float={htp},label={lst-enclosing-env}]
+class C {
+	var f = ...
+	class D(env: C) {
+		... = f   // same as: ... = this.env.f
+		f = ...   // OK if this.env is mutable
+	}
+}
+\end{lstlisting}
+
+The compiler invisibly handles the passing of the environment reference.
+However, the plugin must account for the environment reference's mutability.
+Reads of field~{\cd f} within {\cd D} must be viewpoint-adapted to
+{\cd D}'s environment reference {\cd env}.
+Similarly, writes to field~{\cd f} are allowed only if {\cd D}'s environment
+reference {\cd env} is qualified {\em mutable}.
+
+\subsection{When Local Variables Become Fields}
+\label{sec-local-fields}
+
+The Scala language allows a class to be declared within a method.
+The rules for handling classes within methods are (at least superfically)
+similar to the rules for handling classes within classes. For example,
+in listing~\ref{lst-enclosing-env-2}, class {\cd D} is within method {\cd m}.
+\begin{lstlisting}[caption={Accessing an Enclosing Environment (2)},float={htp},label={lst-enclosing-env-2}]
+def m() {
+	var f = ...
+	class D(env: M) {  // where M is the type of m's closure
+		... = f          // same as: ... = this.env.f
+		f = ...          // OK if this.env is mutable
+	}
+}
+\end{lstlisting}
+When an instance of class~{\cd D} is created, it is given a reference
+to a closure of its enclosing method~{\cd m}.
+Local variables in {\cd m} are accessed as fields of {\cd m}'s closure
+from within class {\cd D}.
+Reads of variable~{\cd f} from within {\cd D} must be viewpoint-adapted to
+{\cd D}'s environment reference {\cd env}.
+Similarly, writes to variable~{\cd f} are allowed only if {\cd D}'s environment
+reference {\cd env} is qualified {\em mutable}.
+
+\subsection{Nested Methods}
+\label{sec-nested-methods}
+
+Methods may be nested within other methods.
+Inner methods have access to their enclosing methods' local variables.
+Technically, access to an enclosing method's local variables is obtained through
+a reference to the enclosing method's stack frame or closure,
+where the inner method treats the enclosing method's local variables as fields.
+
+\begin{lstlisting}[caption={Accessing an Enclosing Environment (3)},float={htp},label={lst-enclosing-env-3}]
+def m1() {
+	var f = ...
+	def m2(env: M1) {  // where M1 is the type of m1's closure
+		... = f          // same as: ... = env.f
+		f = ...          // OK if env is mutable
+	}
+}
+\end{lstlisting}
+
+
+Nested methods can access variables in their enclosing methods.
+This access occurs through an environment reference,
+which in this case may be roughly understood as a pointer to the stack
+frame of the enclosing method.
+Listing~\ref{lst-encl-var-access} shows a nested method~{\cd m2}
+that modifies a variable {\cd v} from its enclosing method~{\cd m1}.
+The access of {\cd v} goes through {\cd m2}'s environment reference~{\cd env}.
+
+\begin{lstlisting}[caption={Enclosing-method Variable access},float={htp},label={lst-encl-var-access}]
+def m1(this) {
+	var v = ...
+	def m2(env: @mutable) {
+		v = ...      // same as: env.v = ...
+	}
+}
+\end{lstlisting}
+
+
+
+Nested methods can be converted to closures.
+
+\begin{lstlisting}[caption={Nested Methods},float={htp},label={lst-nested-methods}]
+def m1(this) {
+	var v = ...
+	def m2() {
+		v = ...
+	}
+	m2()
+}
+def m1() {
+	var v = ...
+	class M2(env: M1) {
+		def apply(m2_this: M2) {
+			v = ...          // same as: m2_this.env.v = ...
+		}
+	}
+	val m2 = new M2
+	m2.apply()           // call is converted to closure application
+}
+\end{lstlisting}
+
+
+\subsection{Increased Precision for Environment References} \label{sec-env-precision}
+
+It is useful to be able to say that a receiver reference can
+mutate fields of an inner class, but not fields of some enclosing class.
+Unfortunately, a simple \mbox{{\em mutable}} qualifier is not precise enough for
+this purpose~-- a merely {\em mutable} receiver allows mutation in all enclosing environments.
+In this section, I introduce qualifiers that support increased precision of environment
+references, followed by examples of the relationships among these qualifiers,
+followed by a formal definition of the subtype relationships among these
+qualifiers.
+
+I introduce here a set of qualifiers \mbox{{\em mutable}$_T$}, where $T$ is a
+type definition~-- type definitions include classes, traits (interfaces),
+and method closures.
+Informally, a reference with a type qualified by \mbox{{\em mutable}$_T$}
+is considered {\em mutable} when accessing a field within the definition of $T$,
+but is considered {\em readonly} when accessing a field lexically scoped outside
+the definition of $T$.
+For example, in listing~\ref{lst-enclosing-env-3},
+a method {\cd m} in class {\cd D} writes to field {\cd f} in class {\cd C}.
+The necessary receiver and environment references are shown explicitly
+(the notation {\cd mutEnv[T]} stands for the qualifier \mbox{{\em mutable}$_T$}).
+In listing~\ref{lst-enclosing-env-3}, the field {\cd f} may be reassigned from within method {\cd m}
+only if {\cd m}'s {\cd this} parameter and class {\cd D}'s {\cd env}
+parameter are at least \mbox{{\em mutable}$_C$}.
+
+\begin{lstlisting}[caption={Accessing an Enclosing Environment (3)},float={htpb},label={lst-enclosing-env-3}]
+class C {
+	var f = ...
+	class D(env: C) {
+		def m(this: D) {
+		            // Access to f is via this.env;
+			f = ...   // OK if this and env are mutable or mutEnv[C],
+			          // error if this or env is mutEnv[D] or readonly
+		}
+	}
+}
+\end{lstlisting}
+
+A qualifier \mbox{{\em mutable}$_S$} is compatible with a qualifier \mbox{{\em mutable}$_T$}
+if $S$ is defined at the same lexical scope as $T$, or
+$T$ is lexically scoped within $S$.
+Informally, if $S$ is at the same scope level as $T$, then $S$ and $T$ share the same
+enclosing scope, which is considered {\em readonly} for both.
+If $T$ is within $S$, then all scopes enclosing $S$ also enclose $T$,
+so all scopes considered {\em readonly} for \mbox{{\em mutable}$_S$} are also {\em readonly}
+for \mbox{{\em mutable}$_T$}.
+For example, method {\cd m1} in listing~\ref{lst-param-and-env} is allowed
+to call {\cd m2}, but not the reverse.
+Method {\cd m1}'s {\cd this} is \mbox{{\em mutable}$_C$}, allowing mutation within either
+class {\cd C} or class {\cd D}.
+Method {\cd m2}'s {\cd this} is \mbox{{\em mutable}$_D$}, allowing mutation within class
+{\cd D}, but not class {\cd C}.
+The qualifier \mbox{{\em mutable}$_D$} here is strictly more restrictive than
+the qualifier \mbox{{\em mutable}$_C$}, resulting in the
+judgement \mbox{{\em mutable}$_C$} $<:$ \mbox{{\em mutable}$_D$},
+but not \mbox{{\em mutable}$_D$} $<:$ \mbox{{\em mutable}$_C$}.
+
+\begin{lstlisting}[caption={Parameters and Environment References},float={htpb},label={lst-param-and-env}]
+class C {
+	class D {
+		def m1(this: @*@mutEnv[C]*@) = m2(this)   // OK: mutEnv[C] <: mutEnv[D]
+		def m2(this: @*@mutEnv[D]*@) = m1(this)   // Error
+	}
+}
+\end{lstlisting}
+
+A qualifier \mbox{{\em mutable}$_S$} is compatible with a qualifier \mbox{{\em mutable}$_T$}
+if $S$ is a subclass of $T$, or $T$ is a subclass of $S$.
+The primary reason for the forgoing provision is to support
+inheritance and overriding.
+For example, in listing~\ref{lst-inherit-and-env}, method {\cd m} in class {\cd D}
+overrides method {\cd m} in class {\cd C}.
+The override is allowed because of the judgement \mbox{{\em mutable}$_C$} $<:$ \mbox{{\em mutable}$_D$},
+and the call to the superclass method is allowed because of
+the judgement \mbox{{\em mutable}$_D$} $<:$ \mbox{{\em mutable}$_C$}.
+Informally, allowing the method override is acceptable here because \mbox{{\em mutable}$_C$}
+within class {\cd C} and \mbox{{\em mutable}$_D$} within class {\cd D} are both
+expressions of the same invariant: mutations are allowed inside the enclosing
+class, but not outside.
+Although listing~\ref{lst-inherit-and-env} shows the defintions of class {\cd C}
+and class {\cd D} in the same scope (in which case \mbox{{\em mutable}$_C$} and \mbox{{\em mutable}$_D$}
+are mutually compatible without the inheritance provision), the inheritance provision
+allows {\cd D} to inherit from {\cd C} when they are defined in different scopes.
+
+\begin{lstlisting}[caption={Inheritance and Environment References},float={htpb},label={lst-inherit-and-env}]
+class C {
+	def m(this: @*@mutEnv[C]*@) = ...
+}
+class D extends C {
+	override def m(this: @*@mutEnv[D]*@) = {   // OK: mutEnv[C] <: mutEnv[D]
+		C.super.m(this)                      // OK: mutEnv[D] <: mutEnv[C]
+	}
+}
+\end{lstlisting}
+
+One pattern supported by the inheritance provision
+is mutation within an inherited environment.
+For example, listing~\ref{lst-inherit-and-env-2} shows a method {\cd m}
+inside the environment class~{\cd Env2} that mutates a field
+inside environment class~{\cd Env1}.
+The mutation is allowed because {\cd Env2} extends {\cd Env1}.
+
+\begin{lstlisting}[caption={Inheritance and Environment References (2)},float={htp},label={lst-inherit-and-env-2}]
+class Env1 {
+	var v = ...  // v is defined in Env1
+}
+class Env2 extends Env1 {
+	class C {
+		def m(this: @*@mutEnv[Env2]*@) = {
+			v = ...  // OK: mutEnv[Env2] allows mutation of Env1
+		}
+	}
+}
+\end{lstlisting}
+
+
+In general, the subtype relationships in figure~\ref{envqual-subtype} hold.
+\begin{figure}[htpb]
+\begin{equation*} %\tag{SUBTYPE-ENVQUAL} \label{equ-SUBTYPE-ENVQUAL}
+\begin{array}{l c l l}
+	(1)\quad mutable_S &<:& mutable_T & \text{where}\ owners(T) \subseteq owners(S) \\
+	(2)\quad mutable_S &<:& mutable_T & \text{where}\ S \in parents(T)\ \text{or}\ T \in parents(S) \\
+	(3)\quad mutable   &<:& mutable_T & \text{for all}\ T \\
+	(4)\quad mutable_T &<:& readonly  & \text{for all}\ T \\
+\end{array}
+\end{equation*}
+\caption{Environment-reference Subtype Relationships}
+\label{envqual-subtype}
+\end{figure}
+
+Rule 1 in figure~\ref{envqual-subtype} is the lexical enclosure rule.
+The qualifier \mbox{{\em mutable}$_S$} is a subtype of the qualifier \mbox{{\em mutable}$_T$}
+if all definitions enclosing the definition of $T$ also enclose the definition of $S$.
+The function \mbox{$owners$} takes a type definition $T$ and returns the set of all
+type definitions enclosing~$T$.
+
+Rule 2 is the inheritance provision rule.
+The qualifiers \mbox{{\em mutable}$_S$} and \mbox{{\em mutable}$_T$} are mutually compatible
+where $S$ and $T$ have an inheritance relationship.
+The function $parents$ takes a type definition $T$ and returns the set of
+all type definitions that are base types of~$T$.
+
+Rule 3 states that \mbox{{\em mutable}} (which allows mutation in any scope)
+is always a subtype of \mbox{{\em mutable}$_T$} (which allows mutation only
+within the definition of $T$ or within $T$'s base/derived types).
+
+Rule 4 states that \mbox{{\em mutable}$_T$} is always a subtype of \mbox{{\em readonly}}.
+The \mbox{{\em mutable}$_T$} qualifier allows mutation within some scopes, but
+\mbox{{\em readonly}} does not allow mutation within any scope.
+
+The determination of a subtyping relationship may require multiple applications
+of rules~1 and~2. For example, listing~\ref{lst-multirule-qual-sub}
+shows a mutation of a field in a base class declared within an inherited environment.
+\begin{lstlisting}[caption={Multi-rule Qualifier Subtyping},float={htp},label={lst-multirule-qual-sub}]
+class Env1 {
+	class C {
+		var v = ..
+	}
+}
+class Env2 extends Env1 {
+	class D extends C {
+		def m(this: @*@mutEnv[Env2]*@) = {
+			v = ...  // OK: mutEnv[C] <: mutEnv[D] and mutEnv[D] <: mutEnv[Env2]
+		}
+	}
+}
+\end{lstlisting}
+
+Field {\cd v} in class {\cd C} is written within a method of derived class {\cd D}.
+The method takes a receiver parameter qualified by \mbox{{\em mutable}$_{Env2}$}.
+No single rule allows the deduction:
+	$$mutable_C <: mutable_{Env2}$$
+since {\cd C} is not within {\cd Env2}, nor does it have an inheritance
+relationship with {\cd Env2}.
+However, {\cd C} does have an inheritance relationship with class {\cd D},
+which is within {\cd Env2}.
+
+There is more than one way to show that $mutable_C <: mutable_{Env2}$ in
+listing~\ref{lst-multirule-qual-sub}.
+For example, it is possible to deduce that $mutable_C <: mutable_{Env1}$
+due to lexical enclosure, and that $mutable_{Env1} <: mutable_{Env2}$
+due to inheritance.
+
+\subsection{Viewpoint Adaptation with Increased-Precision Environment Qualifiers} \label{sec-vp-env-qual}
+
+The simple viewpoint adaptation operator (see fig.~\ref{fig-vp-simple})
+must be augmented to include the increased-precision qualifiers from section~\ref{sec-env-precision}.
+Figure~\ref{fig-vp-inc-prec} shows the augmented viewpoint adaptation operator.
+
+\begin{figure}[htp]
+	\center
+	\begin{tabular}{ccccc}
+		Left & & Right & & Result \\
+		\hline
+		q & $\triangleright$ & {\em mutable} & = & q \\
+		q & $\triangleright$ & \mbox{{\em mutable}$_T$} & = & $\text{q} \lor mutable_T$ \\
+		\_ & $\triangleright$ & {\em readonly} & = & {\em readonly} \\
+	\end{tabular}
+	\caption{The Viewpoint Adaptation Operator $\triangleright$, with Environment Qualifiers}
+	\label{fig-vp-inc-prec}
+\end{figure}
+
+Compared with figure~\ref{fig-vp-simple},
+figure~\ref{fig-vp-inc-prec} adds a rule to support qualifiers of the form \mbox{{\em mutable}$_T$}
+on the right-hand side. (No changes are necessary in the other rules to support
+\mbox{{\em mutable}$_T$} on the left-hand side.)
+
+The new rule performs viewpoint adaptation by joining ($\lor$) the left-hand-side qualifier
+with \mbox{{\em mutable}$_T$}. The join operator on qualifiers is defined here as
+the least upper bound.
+
+%The join operator ($\lor$) is defined as the least restrictive
+%qualifier that is no less restrictive than either of its operands.
+%That is, with the definition of the qualifier subtype relationships in figure~\ref{envqual-subtype},
+%$$q_1 \lor q_2 = \text{the least restrictive}\ q$$
+%such that
+%\begin{equation*}
+%	q_1 <: q\ \text{and}\ q_2 <: q.
+%\end{equation*}
+
+\subsection{Type Selection and Object Construction} \label{sec-type-sel}
+
+Preservation of reference immutability guarantees requires limits on object
+construction. An object should not be constructable if it contains
+an environment reference that could be used to break reference immutability
+guarantees. Listing~\ref{lst-object-construction} shows a class {\cd C} with
+a {\em mutable} environment reference and a class {\cd D} with a {\em readonly}
+environment reference (environment references are shown explicitly).
+Class {\cd C} is able to construct an object of class {\cd D},
+but class {\cd D} cannot construct an object of class {\cd C}
+due to an incompatible environment reference qualifier.
+
+\begin{lstlisting}[caption={Environment References and Object Construction},float={htp},label={lst-object-construction}]
+class Env {
+	class C(env: @mutable) {
+		new D(env)    // OK
+	}
+	class D(env: @readonly) {
+		new C(env)    // Error: class C could mutate within Env
+	}
+}
+\end{lstlisting}
+
+Scala supports path-dependent type selection.
+An object of a given class may or may not be constructible depending on
+the path used to select that class.
+For example, listing~\ref{lst-typesel-construct} shows two attempts to
+construct an instance of an inner class {\cd D}.
+To be constructible, class {\cd D} requires a {\em mutable} reference to its immediately-enclosing
+environment, which is an instance of class {\cd C}.
+If an attempt is made to reach class {\cd D} through a {\em readonly} reference,
+then the resulting type may not be safe to construct because the {\em readonly}
+reference is not compatible with the {\em mutable} environment reference
+expected by {\cd D}.
+
+\begin{lstlisting}[caption={Type Selection and Object Construction},float={htp},label={lst-typesel-construct}]
+class C(env: @mutable) {
+	class D(env: @mutable) {
+	}
+}
+var cr: @readonly = new C
+var cm: @mutable = new C
+new cr.D   // Error: cr is readonly, but D.env is mutable
+new cm.D   // OK
+\end{lstlisting}
+
+A path-dependent type selection is considered well-formed only if the
+viewpoint-adapted reference used to select the type has a qualifier compatible
+with that type's environment reference. The formalization of path-dependent type
+selection in chapter~\ref{chap-dot-calculus-emend} contains more information.
+
+\subsection{Receiver References and Inheritance} \label{sec-rcv-inherit}
+
+Derived classes may override methods from base classes.
+The parameters of the overriding method must be at least as restrictive
+as the corresponding parameters in the overridden method.
+The receiver reference {\cd this}, although not explicitly shown in Scala
+code, is also considered a parameter~-- the qualifier on the overriding
+method's {\cd this} must be at least as restrictive as the overridden method.
+
+\begin{lstlisting}[caption={Receiver Reference Contravariance},float={htp},label={lst-rcv-contravar}]
+class C {
+	def m1(this: @readonly)
+	def m2(this: @mutable)
+}
+class D extends C {
+	override def m1(this: @mutable)    // Error
+	override def m2(this: @readonly)   // OK
+}
+\end{lstlisting}
+
+Listing~\ref{lst-rcv-contravar} shows a class {\cd C} that overrides some methods
+from class {\cd D}. The override of method {\cd m2} is accepted, but the override
+of {\cd m1} is not accepted due to an incompatible receiver reference qualifier.
+The receiver reference for {\cd C}'s version of {\cd m1} is {\em readonly}, which means that it
+can accept an argument with any qualifier, but {\cd D}'s version of {\cd m1}
+can accept an argument with a {\em mutable} qualifier only, causing an incompatibility.
+
+\subsection{Environment Reference Qualifers are Covariant} \label{sec-env-covariance}
+
+Environment reference qualifers are covariant with class hierarchies.
+That is, the environment reference on a derived class may be less restrictive than
+the environment reference on the base class, but
+it may not be more restrictive.
+For example, listing~\ref{lst-env-covariance} shows classes {\cd D} and {\cd E},
+which both attempt to extend class {\cd C}.
+The defintion of class~{\cd D} is acceptable because it has a less restrictive environment reference than {\cd C},
+but class~{\cd E} is not acceptable because it has a less permissive environment reference
+than {\cd C}.
+
+\begin{lstlisting}[caption={Covariance of Environment References},float={htp},label={lst-env-covariance}]
+class Env {
+	class C(env: @*@mutEnv[Env]*@) {}
+	class D(env: @mutable) extends C {}   // OK: D <: C, mutable <: mutEnv[Env]
+	class E(env: @readonly) extends C {}  // Error
+}
+\end{lstlisting}
+
+Although covariance of environment references may appear counterintuitive at first,
+covariance actually provides the correct restrictions on object creation.
+An environment reference that is less restrictive with respect to mutation permissions
+is more restrictive with respect to construction~-- a class with a {\em readonly}
+environment reference does not have any path-dependent construction requirements,
+but a class with a {\em mutable} environment reference can be constructed only when
+accessed through a {\em mutable} reference.
+
+\begin{comment}
+\begin{lstlisting}[caption={Covariance of Environment References},float={htp},label={lst-env-covariance}]
+class Env {
+	class Function1[-S,+T](env:@*@mutEnv[Env]@*) {
+		def apply(this:@*@mutEnv[Env]*@, s: S): T
+	}
+	class Function1D[-S,+T](env:@readonly) extends Function1 {  // Error: @readonly fails covariance test
+		def apply(this:@mutEnv[Env], s: S): T   // Error: @mutEnv[Env] fails consistency test
+	}
+	class Function1E[-S,+T](env:@mutable) extends Function1 {
+		def apply(this:@mutable, s: S): T       // Error: override fails contravariant-parameter test
+		def apply(this:@*@mutEnv[Env]*@, s: S): T
+		def apply(this:@readonly, s: S): T
+	}
+}
+\end{lstlisting}
+\end{comment}
+
+
+\subsection{Consistency Requirements for Environment References} \label{sec-env-consistency}
+
+All methods of a class must have receiver references that are at least as restrictive
+as that class' environment reference.
+Otherwise, a method could violate the qualifier on the path used to select the
+class prior to construction.
+For example, listing~\ref{lst-env-consistency-1} shows a set of methods declared within
+a class~{\cd C}. Class~{\cd C}'s environment reference is {\em readonly},
+so it is acceptable to create an object of type~{\cd C} where {\cd C} is
+reached through a {\em readonly} reference.
+Preservation of the {\em readonly} guarantee means that no method of {\cd C}
+can be allowed to mutate outside of {\cd C} through the {\cd this} reference.
+(Or, at least that no such mutating method can be {\em called} on an object of type {\cd C}
+where {\cd C} is reached through a {\em readonly} reference~-- see section~\ref{sec-vp-new}
+on the viewpoint adaptation of the {\cd new} operator for a discussion of this possibility.)
+
+\begin{lstlisting}[caption={Environment Reference Consistency (1)},float={htp},label={lst-env-consistency-1}]
+class Env {
+	class C(env: @readonly) {
+		def m1(this: @readonly)     // OK
+		def m2(this: @*@mutEnv[C]*@)    // OK
+		def m3(this: @*@mutEnv[Env]*@)  // Error: may mutate outside of C
+		def m4(this: @mutable)      // Error: may mutate outside of C
+	}
+}
+\end{lstlisting}
+
+Note that method {\cd m2} is accepted despite having a receiver reference
+qualified by \mbox{$mutable_C$}. The meaning of \mbox{$mutable_C$} is
+such that all environment references at or outside of {\cd C} are {\em readonly}.
+Therefore, the {\em readonly} on the environment reference of {\cd C}
+can be replaced by \mbox{$mutable_C$} without any loss of safety or precision.
+
+\begin{lstlisting}[caption={Environment Reference Consistency (2)},float={htp},label={lst-env-consistency-2}]
+class Env {
+	class C(env: @readonly) {
+		class D1(env: @readonly) {}    // OK
+		class D2(env: @*@mutEnv[C]*@) {}   // OK
+		class D3(env: @*@mutEnv[Env]*@) {} // Error: may mutate outside of C
+		class D4(env: @mutable) {}     // Error: may mutate outside of C
+	}
+}
+\end{lstlisting}
+
+Listing~\ref{lst-env-consistency-2} is the same as listing~\ref{lst-env-consistency-1},
+except that the methods of class~{\cd C} are replaced by nested classes.
+The same restrictions that apply to the receiver references on the methods
+also apply to the environment references on the nested classes.
+
+Environment-reference consistency requirements only need to be enforced
+for concrete classes. Abstract classes are not constructible
+
+
+\section{Nested Methods} \label{sec-nested-methods}
+
+\begin{lstlisting}[caption={},float={htp},label={lst-}]
+def m(this: @readonly) {
+	def g() { ... }
+	g()
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={},float={htp},label={lst-}]
+class M(env: @readonly) {
+	def apply() {
+		class G(env: @mutEnv[M]) {
+			def apply() { ... }
+		}
+		val g = new G
+		g.apply()
+	}
+}
+\end{lstlisting}
+
+\section{Function Types} \label{sec-function-types}
+
+\begin{lstlisting}[caption={},float={htp},label={lst-}]
+def m() {
+	def g() { ... }
+	g()
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={},float={htp},label={lst-}]
+class C {
+	def m(this: @mutEnv[C]) {
+		class G(env: @mutEnv[C]) extends Function0[Unit] {
+			def apply() { ... }
+		}
+		val g = new G
+		g.apply()
+	}
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={},float={htp},label={lst-}]
+class Function0[U](env: @readonly) {
+	def apply(this: @readonly)
+}
+def m1() {
+	class G(env: @readonly) extends Function0[Unit] {
+		def apply(this: @readonly) { ... }
+	}
+	val g: @fresh = new G(env)
+	val gr: @readonly = g   // Error: gr.apply cannot be called, so don't allow the assignment
+	g.apply()   // OK: fresh <: mutEnv[G]
+	m2(g)       // OK: fresh <: readonly
+	
+	// if I can call m2(g), and m2 can call g.apply,
+	//  then qual(g) <: rcv(g.apply).
+	
+	//gr.apply()  // Error: expecting @mutEnv[G], got @readonly
+	//m2(gr)      // special case ---> : cannot call gr.apply, so forbid here
+	// The rule may be: do not allow passing of a function that cannot be invoked.
+	// Therefore, any callee may assume that any function passed can be invoked.
+}
+def m2(this: @readonly, f: Function0[Unit] @mutable) {
+	f.apply()   // OK
+}
+def m2(this: @readonly, f: Function0[Unit] @readonly) {
+	f.g()      // Error: @readonly not compat with @mutEnv[Function0]
+	f.apply()  // OK: special exception for @readonly
+}
+\end{lstlisting}
+
+A loss of generalization occurs when the apply method is special-cased...
+How do we know which methods the called method will call?
+
+Perhaps something like a @calls[C] annotation,
+where we assume the called method can call any method on class C,
+where C is a non-strict supertype of the underlying reference type.

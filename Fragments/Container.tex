@@ -1,0 +1,207 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{booktabs}
+
+\usepackage{amsmath,amssymb,amstext,amsthm} % Lots of math symbols and environments
+\usepackage[pdftex]{graphicx} % For including graphics N.B. pdftex graphics driver 
+
+%custom packages
+\usepackage[usenames,dvipsnames,svgnames,table]{xcolor}
+\usepackage[greek,english]{babel}
+\usepackage{cancel}
+\usepackage{comment}
+\usepackage{courier}
+\usepackage{fixltx2e}  % for subscript text in sections/bookmarks
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{listings}
+%\usepackage[12pt]{moresize}
+\usepackage{multirow}
+\usepackage{tikz}
+%\usepackage{ulem}
+\usepackage{url}
+\usepackage[utf8]{inputenc}
+
+% Theorem Styles
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+% Definition Styles
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+% Code Styles
+\newcommand{\und}{\char`_}
+\newcommand{\cde}{\bf\ttfamily\footnotesize}  % basic listing style
+\newcommand{\cd}{\cde\small}  % basic inline-code style
+\lstdefinelanguage{ScalaExamples}{
+	morekeywords={
+		def,var,val,type,object,package,class,abstract,trait,extends,with,
+		match,case,
+		import,
+		this,super,override,
+		private,protected,public,
+		final,sealed,null,new,
+		for,do,while,until,yield,return},
+	sensitive=true,
+	morecomment=[l]{//},
+	morecomment=[s]{/*}{*/},
+	morestring=[b]"
+}
+\lstset{
+	language={ScalaExamples},
+	basicstyle=\cde,
+	tabsize=2,
+	keywordstyle=\cde\color{Blue},
+	identifierstyle=\cde,
+	commentstyle=\bf\scriptsize\color{gray},
+	%xleftmargin=\parindent,
+	extendedchars=true,
+	breaklines=true,
+	captionpos=b,
+	frame=b,
+	float=htp,
+	emph={@pure,@readonly,@mutable,@polyread},
+	emphstyle={\cde\color{OliveGreen}},
+	moredelim=**[is][\cde\color{OliveGreen}]{@*}{*@},
+	escapeinside={(*}{*)}
+}
+
+% Overline
+% Credit: http://tex.stackexchange.com/questions/24132/overline-outside-of-math-mode
+\makeatletter
+\newcommand*{\ovr}[1]{$\overline{\hbox{#1}}\m@th$}
+\makeatother
+
+\begin{document}
+
+\title{Reference Immutability for Scala}
+\author{Jonathan Rodriguez\\University of Waterloo}
+\maketitle
+
+
+The theory in this case is that the proposed process/approach yields ``better'' progress toward an ``important'' goal.
+``Better'' is normally defined across a number of relevant dimensions.
+``Important'' is motivated intrinsically or extriniscally.
+Intrinsic importance is subjective, and the only way to get such work published is to persuade (or come to an agreement with) others about the intinsically interesting nature of the topic. (There is no such thing as objectively interesting work. Interest is always subjective--the work is interesting to whom?)
+
+
+The real question we want to answer here is:
+What aspects of the proposed system are worth further investigation or implementation?
+
+
+Utility dimensions for programmer-friendly side-effect limitation systems
+\begin{itemize}
+\item{\bf Utility.} How useful is the knowledge expressed by the annotations? (What can be done with that knowledge?)
+
+\item {\bf Consistency.} Is it possible to compile and run code with inconsistent annotations? If so, how easy is it to unintentionally introduce unchecked inconsistencies?
+
+\item {\bf Ease of Learning.} Will it be easy for the target programmer to learn the meanings of the annotations and use those annotations effectively?
+
+\item {\bf Code Restructuring.} Does fully-annotated code require substantial refactoring, or can typical code be fully annotated as-is? (To define: ``fully annotated'')
+
+\item{\bf Compatibility with Existing Code.} Does enabling the new feature break compatibility with existing code? If so, how much backward compatibility is lost?
+
+\item {\bf Visual Complexity.} Are the annotations easy or difficult to parse visually?
+
+\item {\bf Annotation Density.} Does fully-annotated code tend to require many or few annotations? (Inference reduces this.) (``Annotations required'' in the present work also includes new type annotations.)
+
+\item {\bf Incremental Annotation Burden.} Const hell. Annotation of the standard library.
+
+\item{\bf Computational Efficiency.} Is compiling annotated code substantially slower than compiling unannotated code? Does enabling the new feature slow down compilation of existing unannotated code?
+
+%\item Easy to replicate or reimplement the idea. (?)
+\end{itemize}
+
+Do the annotations tend to obscure the meaning of the underlying code?
+The answer to this question is likely a combination of annotation density, visual complexity, and ease of use (improper use could obfuscate code more easily).
+
+% Whaat do union types have to do with the evaluation?
+
+
+The context of this work is ``Scala-like'' languagues.
+
+The formulation of the work involves type unions and intersections, a novel method of representing reference immutability.
+
+The soundness problem is dealt with in the following way:
+the purity problem becomes a reference immutability problem,
+which becomes a type soundness problem.
+
+I expect the proposed approach to be visually lightweight.
+The lightweightness of the system is expected to be supported by Scala's local type inference features.
+JPure has quite clear and lightweight annotations, as do other RI systems, so I expect this system to maintain the lightweightness.
+
+
+
+% Interest
+
+% Topic
+Reference immuability and side-effect limitations.
+
+% The Question(s) I plan to answer here: ...
+What is a reasonable way to help programmers statically reason about possible side effects in Scala-like languages?
+What can I say about the reusability of the type system/inference? (How useful are union/intersection types? Are the benefits/drawbacks to using automatic type inference?) What about extensibility problems?
+
+% What's the theory (tentative answer to the question)?
+% The theory here is about an idea, or a system of related ideas (which is itself an idea), and the answer is about utility of the idea with respect to a particular purpose.
+Reference immutability permissions can be represented as type unions and intersections.
+Mutability may be understood as a permission that can be added to or removed from arbitrary types by means of type unions and intersections.
+
+% Implementation
+
+% Methodology: what do we mean by "reasonableness," and how can we practically evaluate it? (not all dimensions can be evaluted to the nth degree, so we get picky about it)
+% dimensions
+
+% What (precisely) we're going to measure
+
+% How we're going to measure
+
+
+
+% General comments
+% "Novelty" from a research perspective is just a way of saying that we have not considered (or considered as thoroughly) the given question.
+% In CS, theories take the form, "If one does X rather than Y in a given context C, then one is likely to obtain the range Z of relative advantages and disadvantages."
+% So there is a measurement of agency involved; either a human is doing X or Y, or a machine is.
+% There is also a repeatability involved in theformulation of this theory: we are not asking about nonrepeatable actions; we are asking about actions performed within a context that is general enough that others can use your research to inform their own actions.
+% Sometimes there is no explicit comparision of approaches. Instead, the paper is of the form, "We did X, and Z happened." This is fine under the condiiton that X has not been done before (so we have no prior information about X).
+% The rigour of the comparision element should be related to the importance of the question: a rigourous comparision between actions that nobody cares about is probably a waste of time.
+
+% Incremental annotation burden?
+% "Near-maximal typings" with few annotations?
+% Precision: difficulty of expressing purity where purity exists?
+
+%\subsection{Discussion of the Area and its Methodologies}
+
+% The motivations for studies in the programming languages area seem to me to be roughly categorizable into two distinct groups.
+% The motivations in the first group of studies are to improve the functionality of a software system by means of optimization of compute time, memory use, or other resource.
+% For example, 
+
+% The motivations for studies in the programming languages area seem to me to be categorizable into two distinct groups. Studies in the first group are aimed at improving performance, memory usage, or power usage. I will refer to this group as ``intra-system'' studies. Intra-system studies take the human interface elements and language standards as a given, and attempt to improve functionality in 
+
+% Studies in the second group are aimed at improving the human usability, flexibility, and application of the system. The interface between the human and the machine 
+
+
+% Occam's Razor, parsimony: the solution(s) presented here is(are) candidates for the simplest answer(s) to the given question(s)
+
+% study at the intimation of Providence?
+% Yes.
+
+
+%\subsubsection{}
+
+
+\input{ChMutableAny}
+
+\input{ChEnvironment}
+
+\input{ChAnnotations}
+
+%\bibliographystyle{alpha}
+%\bibliographystyle{plain}
+\bibliographystyle{abbrv}
+\bibliography{../references}
+
+\end{document}

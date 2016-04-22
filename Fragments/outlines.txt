@@ -1,0 +1,24 @@
+Topics to be addressed (thesis):
+
+1. What is this system attempting to achieve?
+
+2. Functional purity as reference immutability.
+
+3. @nonrep and accessor methods.
+
+4. Chart of defaults:
+	Which combinations of defaults would entail adding what other annotations?
+
+5. Inner method/class purity.
+
+6. Proof: Does deep-readonly on types imply @pure?
+
+
+
+System for going about writing a complete document:
+1. Take another lit. survey; determine what's relevant. (1 wk)
+2. Study in detail what's relevant. (2 wks)
+3. Go over all previous related writings. (brief)
+4. Cherry-pick and revise sections in previous writings to fit new structure.
+5. Separate key underlying type system(s) from end-programmer presentation.
+6. Relationship between RI and side effects.

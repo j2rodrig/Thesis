@@ -1,0 +1,351 @@
+
+\section{Reference Immutability Types}
+
+Reference Immutability (RI) Types are qualifiers on ordinary data types.
+The basic RI types we use here are \emph{readonly}, \emph{mutable}, and \emph{polyread}.
+RI types specify deep (or transitive) write permissions.
+A \emph{readonly} type disallows writes to the referenced object, and transitively
+all objects referenced by fields of that object.
+A \emph{mutable} type does not place any restrictions on the use of referenced objects --
+for programs with no RI types, all references are assumed to be mutable.
+A \emph{polyread} type indicates that readonly restrictions may or may not apply,
+depending on context. (\emph{Polyread} is discussed in detail below.)
+
+RI types form a hierarchy.
+\emph{Mutable} types can be safely cast to \emph{polyread},
+and \emph{polyread} types can be safely cast to \emph{readonly}.
+Briefly, the subtyping relationship is:
+
+\begin{center}
+	mutable <: polyread <: readonly
+\end{center}
+
+The transitive nature of RI types means that readonly restrictions must be
+propagated along access paths.
+In particular, any field accessed through a \emph{readonly} reference must
+be treated as \emph{readonly}, and a \emph{mutable} field accessed through
+a \emph{polyread} reference is treated as \emph{polyread}.
+If \emph{polyread} fields are accessed through \emph{mutable} references,
+they are treated as (or adapted to) \emph{mutable}.
+Definition~\ref{accesspath-ri-def} summarizes the RI type rule for access paths.
+
+%The transitive nature of RI types means that readonly restrictions must be
+%propagated along access paths -- a reference that is readonly along one
+%access path may be mutable when observed along a different access path.
+%The following table lists all possible combinations of RI types for
+%a given access path~\code{h.k}:
+%We define the RI type of an access path to be at least as restrictive 
+%as any element of that path.
+%(Unlike Javari~\cite{javari}, we do not allow the \emph{mutable} RI type to
+%violate readonly restrictions.)
+
+\begin{definition}
+	\label{accesspath-ri-def}
+	Let \code{h} be an access path to some object~$O$, and let~$r_h$
+	be the Reference Immutability (RI) type of~\code{h}.
+	Furthermore, let~\code{k} be a field of $O$ with an RI type of~$r_k$.
+	The RI type of the access path~\code{h.k}
+	%Given an identifier~\code{h} and an access path~\code{k}
+	%with Reference Immutability (RI) Types~$r_h$ and~$r_k$, respectively,
+	%the RI type of the combined access path~\code{h.k}
+	is $r_h$ if $r_k$
+	is \emph{polyread}, else the RI type of~\code{h.k} is
+	the least upper bound of $r_h$ and $r_k$.
+\end{definition}
+
+The complete list of RI type combinations for access paths is:
+
+\begin{center}
+	\begin{tabular}{cc|c}
+	RI Type of \code{h} & RI Type of \code{k} & RI Type of \code{h.k} \\
+	\hline
+	mutable & mutable & mutable \\
+	mutable & polyread & mutable \\
+	mutable & readonly & readonly \\
+	polyread & mutable & polyread \\
+	polyread & polyread & polyread \\
+	polyread & readonly & readonly \\
+	readonly & mutable & readonly \\
+	readonly & polyread & readonly \\
+	readonly & readonly & readonly \\
+	\end{tabular}
+\end{center}
+
+
+
+RI types can be used in generic contexts. For example,
+an Iterator class may be declared covariant in its element type,
+so the IR type of the element is also covariant.
+The programmer can declare that such an iterator is \emph{mutable}, but
+contains \emph{readonly} elements~-- the iterator object itself
+can be modified, but elements returned by the iterator cannot be modified.
+%Elements can be added or removed from this iterator, but elements retrieved
+%from the list cannot be modified.
+The iterator is a subtype of a \emph{polyread} or \emph{readonly} iterator
+with \emph{readonly} elements, but not a subtype of any iterator
+with non-\emph{readonly} elements.
+
+%Covariance, contravariance, and invariance are already supported by Scala.
+%To the extent possible, RI types adhere to 
+
+The purpose of the \emph{polyread} type is for \emph{viewpoint adaptation}.
+Viewpoint adaptation allows a method's return type to vary (or be adapted) depending on
+the types of its parameters. For example, consider a basic getter function
+(shown with an explicit receiver \code{this}):
+\begin{lstlisting}
+class C {
+	private[this] var x: X = ...
+	def get (this: C @polyread): X @polyread = this.x
+}
+val ro_c: C @readonly = new C
+val mu_c: C = new C
+val ro_x: X @readonly = ro_c.get()   (*// readonly this yields readonly x*)
+val mu_x = mu_c.get()                (*// mutable this yields mutable x*)
+\end{lstlisting}
+The return type of \code{C.get} must be \code{@polyread} to avoid code duplication.
+Otherwise, we would require the programmer to create two versions of \code{C.get}: one returning
+\code{@readonly} and the other returning \code{@mutable}.
+
+Viewpoint adaptation of \emph{polyread}-returning methods
+occurs at the point of method application.
+If any \emph{polyread} parameter is given a \emph{readonly} argument,
+then the return type is \emph{readonly}.
+We must conservatively assume that any \emph{polyread} parameter may be
+returned or assigned into (the locality of) the returned reference,
+so we must return \emph{readonly} to protect the \emph{readonly} guarantee
+of the \emph{readonly} argument.
+If none of the arguments are \emph{readonly}, but at least one is \emph{mutable},
+then we assume that some reference in the locality of the mutable argument may
+be returned, and that the caller may need to mutate that reference after
+the viewpoint-adapted function returns.
+The remaining case is where all of the \emph{polyread} parameters are given
+\emph{polyread} arguments.
+In this case, the returned reference remains in an unadapted state (\emph{polyread}),
+allowing unadapted methods to be composed.
+
+\begin{table}
+	\begin{center}
+	\begin{tabular}{ccc|c}
+	Mutable    & Polyread   & Readonly   & Adapted \\
+	arguments? & arguments? & arguments? & RI Type \\
+	\hline
+	   &   &   & polyread \\
+	 Y &   &   & mutable \\
+	   & Y &   & polyread \\
+	 Y & Y &   & mutable \\
+	   &   & Y & readonly \\
+	 Y &   & Y & readonly \\
+	   & Y & Y & readonly \\
+	 Y & Y & Y & readonly \\
+	\end{tabular}
+	\end{center}
+	\caption{Viewpoint adaption for \emph{polyread}-returning methods.}
+	\label{viewadapt-methods}
+\end{table}
+
+Table~\ref{viewadapt-methods} lists the possible combinations of argument RI types
+and their resulting return RI types.
+The resulting viewpoint adaptation is summarized in definition~\ref{viewadapt-def}.
+
+\begin{definition}
+	\label{viewadapt-def}
+	Let \code{m} be a \emph{polyread}-returning method, and $P$ be the set of all
+	parameters of \code{m} that have the RI type \emph{polyread}.
+	For a given an application of \code{m}, let $A$ be the set of arguments that
+	map to the elements of $P$.
+	If any elements of $A$ have the RI type \emph{readonly}, then
+	the adapated type of the application is \emph{readonly}.
+	Otherwise, if any elements of $A$ have the RI type \emph{mutable}, then
+	the adapated type of the application is \emph{mutable}.
+	Otherwise, adapated type of the application is \emph{polyread}.
+\end{definition}
+
+The rules for viewpoint adaptation only need to account for \emph{polyread} parameters.
+If a \emph{polyread}-returning method has \emph{readonly} parameters,
+then we know that those parameters cannot be returned or assigned into the return reference,
+so they cannot affect viewpoint adaptation.
+\emph{Mutable} parameters may be returned or assigned into the returned reference,
+but since \emph{mutable} references can be safely used in \emph{mutable}, \emph{polyread},
+or \emph{readonly} contexts, they do not place any constraints on
+the semantics of viewpoint adaptation.
+
+Our viewpoint adaptation differs from ReIm~\cite{reim} in that
+we determine RI return types based only on argument types
+(argument types include the receiver type), while
+ReIm adapts return types based on the assignment context or call-site context.
+We made this decision primarily for compatibility with Scala's local type inference,
+which determines types bottom-up -- the types of the left-hand sides
+of assignments are not always available before the right-hand side types
+must be determined.
+The decision of ReIm's authors to consider of the assignment context or call-site context
+may permit their inference algorithm to produce more ideal types
+in some cases.
+Their global inference system, ReImInfer, appears to rely
+on call-site context to produce a maximal typing.
+Unfortunately, the maximal typing produced by ReImInfer may become inconsistent
+if generic types are introduced.
+We restrict our focus to the problem of local inference,
+leaving global inference of RI types as a separate problem
+for future work.
+%The authors of ReIm claim that context sensitivity permits a better
+%typing.
+
+\begin{comment}
+The difference is due to the nature of the inference used.
+ReImInfer is a global inference system, but Scala uses local type inference.
+Under local type inference, the type of the right-hand side of an assignment
+is determined without taking the type of the left-hand side into account.
+Therefore, we can expect the parameter types to be available at a function
+application site, but not necessarily the type that the return value must
+be adpated to.
+Because of the restrictions of local type inference,
+we cannot guarantee a ``best'' typing like ReImInfer.
+However, we should note that ReImInfer does not support generic types,
+and it is questionable whether the approach it takes can
+find best typings that will type-check correctly in the presence of generics.
+We consider global inference and local inference to be separate problems.
+Where global inference addresses the issue of generating or suggesting annotations
+for non-annotated code, local inference is normally used to reduce the programmer's
+annotation burden when working with annotated code.
+Our work focuses on the integration of RI types with local type inference,
+leaving global inference as a possibility for future work.
+\end{comment}
+
+%These are roughly the same types as used by ReIm~\cite{reim} and Javari~\cite{javari}
+%(although Javari uses the term \emph{romaybe} instead of \emph{polyread}).
+%However, our interpretation of the distinction between \emph{mutable} and \emph{polyread} differs slightly
+%from ReIm and Javari -- we detail our interpretation below.
+
+\subsection{Defaults}
+
+One of the objectives of the RI type system implementation is to permit
+RI annotations to be incrementally added to existing code.
+Another objective is to allow type annotations to be locally inferred.
+Meeting these objectives requires choosing appropriate defaults
+where RI types are not annotated and cannot be inferred.
+
+For code with no RI type information (as would be the case when using a
+pre-compiled library that was compiled without RI types),
+we assume that every reference is \emph{mutable}.
+Parameters must be \emph{mutable} because we must conservatively assume that any called
+method may mutate the locality of any parameter.
+Return values can safely be assumed \emph{mutable} because in the absence of RI type annotations,
+there is no way to apply \emph{polyread} or \emph{readonly} constraints.
+Fields may be typed as \emph{mutable} or \emph{polyread}, since in both cases
+access through a \emph{mutable} reference will cause the field to behave as \emph{mutable}.
+Local variables may similarly be typed as \emph{mutable} or \emph{polyread} by default.
+If \emph{polyread}, then access through a mutable frame reference %(see section~\ref{framedef_examples})
+will cause the variable to behave as \emph{mutable}.
+These defaults should allow unannotated code to type-check cleanly.
+
+One implication of a \emph{mutable}-everywhere default is that code with
+RI type annotations cannot pass \emph{polyread} or \emph{readonly} arguments
+to unannotated methods.
+While this implication may seem restrictive, it is necessary to
+preserve reference immutability constraints.
+Because we do not know whether the called method will perform mutations,
+we cannot guarantee that a call to that method will preserve the
+\emph{readonly} or \emph{polyread} constraints.
+The ideal way to address this issue is to annotate the called method
+(and as necessary, methods it depends on) and re-compile.
+If it becomes necessary in practice to allow such calls without
+annotating called methods, we may need to introduce an annotation that
+can be placed at the call site (perhaps an intentionally ugly annotation)
+that makes an exception to normal type-checking rules.
+
+For code with annotations, we still use \emph{mutable} defaults
+where the RI type is not declared or inferred.
+\emph{Mutable} references are assignable to \emph{polyread} or \emph{readonly}
+variables, hopefully relieving programmers from the need to declare RI types
+except on method signatures and certain key variables.
+
+The RI types of fields can be inferred from the constructor, as is usual
+for Scala code.
+The \emph{mutable} default is acceptable here also, since according to
+definition~\ref{accesspath-ri-def}, the resulting RI type of a field access
+is the same regardless of whether the field's type is \emph{mutable} or \emph{polyread}.
+For \emph{readonly}, the programmer still has the option to annotate it explicitly
+or allow it to be inferred.
+
+\section{Integrating RI with Scala type inference}
+
+One good reason to perform inference on Reference Immutability (RI) types is that inference
+reduces the annotation burden -- the programmer does not need to
+explicitly declare RI types where they can be inferred from the context.
+One approach to RI inference is to build an inference algorithm that runs
+separately from the type checker -- this is the approach taken by ReIm~\cite{reim}.
+ReIm's inference algorithm is guaranteed to find a maximal typing.
+The disadvantage of this approach is that certain complexities
+in the Scala type system (such as covariance, contravariance, and trait linearization)
+will increase the complexity of type inference and checking.
+Another approach is to rely on Scala's built-in type inference mechanism,
+which is the approach attempted for Efftp~\cite{efftp}.
+The potential advantage of this second approach is that many complexities
+in Scala can be handled automatically.
+One disadvantage of this approach is that more annotations may be required to
+achieve a maximal typing -- but on the other hand, RI types would behave
+similarly to other types.\footnote{We should note here that Efftp's difficulties are
+likely due to the attempt to use Scala's type inference mechanisms to
+propagate arbitrary effect types, which do not necessarily
+behave like standard data types. RI types, on the other hand, are merely constraints
+on references, and so can be propagated very much like standard data types.}
+
+A few modifications of Scala's type inference system are required to implement
+RI types.
+First, the inference must be aware of the RI type hierarchy,
+specifically that \code{mutable} is a subtype of \code{polyread} and
+\code{polyread} is a subtype of \code{readonly}.
+Each standard data type also has an RI type.
+If no RI type has been declared or can be inferred, the RI type defaults to \code{mutable}.
+Whenever the type inferencer performs a least-upper-bound (LUB) or
+greatest-lower-bound (GLB) operation on a data type, a LUB or GLB is also performed
+on the RI type.
+
+A type is considered equal to another type if and only if
+the data types are equal \emph{and} the RI types are equal
+(and similarly for subtype relationships).
+We initially planned on ignoring the RI type when computing type equality
+and subtyping relationships to ensure that adding RI annotations would never change
+the program semantics. However, ignoring the RI type also means that we forfeit
+use of Scala's built-in mechanisms for type-checking.
+(Type checking for a language like Scala is non-trivial due to covariance,
+contravariance, abstract types, structural types, and other features.)
+Our current approach is to allow the Scala type-checker to consider
+RI types. In the case of unannotated code, all RI types are defaulted to
+\code{mutable}, resulting in no change to program semantics.
+If annotations are added, then those annotations will be taken into account
+when subtyping relationships are evaluated.
+Changed subtyping relationships could cause Scala's inference engine
+to make different decisions about which overloaded methods or which
+implicit functions most closely match a given context.
+However, we do not consider these changes to be problematic in general.
+One of the following situations must apply for any given decision about overloading choices:
+1) adding annotations results in no change to the choice of overload;
+2) adding annotations results in the previous best choice to become non-best,
+	resulting in a different selection;
+3) adding annotations results in the previous best choice to be rejected due
+to incompatible RI types, resulting in a different selection; or
+4) adding annotations results in all overloads to be rejected due to incompatible RI types,
+	resulting in an error.
+We assert that all of these situations are correct in theory,
+although in practice the process of adding annotations to existing software
+may break the code in unexpected ways if the code does not carefully manage overloads or implicits.
+We expect that the \emph{mutable} default will help in practice,
+since unannotated overloads (all \emph{mutable} parameters) will tend not to match annotated code
+(which is likely to use at least a few \emph{readonly} or \emph{polyread} variables).
+
+
+
+%then one of the following situations
+%will apply whenever Scala's inference engine makes a decision
+%If annotations are present, it is possible that the compiler may make different
+%selections of implicit functions or overloaded methods if the preferred
+%selection (before annotation) is disallowed due to incompatible RI types.
+%Disallowing method selections with incompatible RI types is the behaviour
+%we want; the only question is whether we allow alternative methods to be
+%selected silently, or do we force an error?
+
+Other required modifications include handling of viewpoint adaptation
+at call sites and propagation of RI types along access paths.
+
+% Closures?

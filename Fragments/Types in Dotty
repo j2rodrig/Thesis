@@ -1,0 +1,169 @@
+Types in Dotty
+
+Some of the types in Dotty are 
+
+
+Type Markers
+
+TypeType  /** A marker trait for types that apply only to type symbols */
+TermType  /** A marker trait for types that apply only to term symbols */
+	// everything is a TermType except for ClassInfo, TypeBounds/TypeAlias
+ValueTypeOrProto  /** A marker trait for types that can be types of values or prototypes of value types */
+ValueType  // most types are Value types. Non-value types are indicated
+SingletonType  /** A marker trait for types that are guaranteed to contain only a
+   *  single non-null value (they might contain null in addition).
+   */
+BindingType  /** A marker trait for types that bind other types that refer to them.
+   *  Instances are: PolyType, MethodType, RefinedType.
+   */
+BoundType  // MethodParam, PolyParam, RefinedThis.
+ProtoType  /** A trait for proto-types, used as expected types in typer */
+WithFixedSym  //todo do we need to talk about this one?
+
+
+Types
+
+TermRef
+	prefix.name   // where prefix is a singleton type (?), and name is a term identifier
+	is a Singleton type
+
+TermRefWithSignature
+	prefix.name(...param types...):result type   // a term reference with a signature
+
+TypeRef
+	prefix.name   // where prefix is a singleton type (?), and name is a type identifier
+
+ThisType
+	Cls.this     // where the prefix Cls becomes a TypeRef to the class symbol Cls
+	is a Singleton type
+
+SuperType
+	Cls.super[Cls2]  // where Cls is stored as a ThisType, and Cls2 is stored as a TypeRef
+	  // Cls2 is a parent of Cls. 
+	is a Singleton type
+	SuperType by itself is not allowed. It can appear only as the prefix of a TermRef or TypeRef.
+
+ConstantType
+	represents a single value
+	is a Singleton type
+
+LazyRef
+	represents a lazy type evaluation
+
+RefinedType
+	ParentType { refinement }  // where refinement narrows a member of ParentType
+
+	documentation of Desugar#refinedTypeToClass (which is called from typedRefinedTypeTree):
+  /** Create a class definition with the same info as the refined type given by `parent`
+   *  and `refinements`.
+   *
+   *      parent { refinements }
+   *  ==>
+   *      trait <refinement> extends core { this: self => refinements }
+   *
+   *  Here, `core` is the (possibly parameterized) class part of `parent`.
+   *  If `parent` is the same as `core`, self is empty. Otherwise `self` is `parent`.
+   *
+   *  Example: Given
+   *
+   *      class C
+   *      type T1 extends C { type T <: A }
+   *
+   *  the refined type
+   *
+   *      T1 { type T <: B }
+   *
+   *  is expanded to
+   *
+   *      trait <refinement> extends C { this: T1 => type T <: A }
+   *
+   *  The result of this method is used for validity checking, is thrown away afterwards.
+   *  @param parent  The type of `parent`
+   */
+    Where there are multiple members begin refined, a RefinedType is generated for each one.
+
+	is a Binding type
+
+AndType
+	Type1 & Type2
+	Type1 with Type2
+	// Type1 and Type2 must both be Value types
+
+OrType
+	Type1 | Type2
+	// Type1 and Type2 must both be Value types
+
+MethodType
+	m(params): result  // params have names and types. result is a type (note re result: at runtime, the result is a value, but at compile time, we use a type to represent all possible values.)
+
+	Note on dependent types:
+    /** The dependency status of this method. Some examples:
+     *
+     *    class C extends { type S; type T = String }
+     *    def f(x: C)(y: Boolean)   // dependencyStatus = NoDeps
+     *    def f(x: C)(y: x.S)       // dependencyStatus = TrueDeps
+     *    def f(x: C)(y: x.T)       // dependencyStatus = FalseDeps, i.e.
+     *                              // dependency can be eliminated by dealiasing.
+     */
+    Querying the result type of the method returns a result type where all false
+    dependencies are removed. Why is this done, and is it important that this is done?
+
+    is a Binding type
+
+ExprType
+	a parameterless method:  def e: result
+	or as a by-name parameter:  (e: => result)
+
+PolyType
+	named type parameters wrapping a result type.
+	(application of a Poly type produces a substitution of the named type parameters in the result.)
+	// type parameter types are always TypeBounds
+
+	is a Binding type
+
+MethodParam
+	Why is this type necessary? Can't the substituters figure things out without it?
+	The only real use-cases of MethodParam I can find are in the dependency removal
+	feature of MethodType, and in ProtoTypes#wildApprox,
+	where the parameter type is used as the upper bound of a WildcardType.
+
+	It seems to me that MethodParam is really just a convenience.
+	Wherever a parameter is referenced, there is always a TermRef around somewhere
+	that can be queried for name and parameter status.
+
+	binds to a MethodType parameter.
+
+PolyParam
+	binds to a PolyType parameter.
+
+RefinedThis
+	Wraps a refinement info, where references to "this" of the parent type
+	(ThisType(ParentType.this)) are substituted by references to "this" of
+	the refined type.
+	The substitution is necessary so that references to the refined member
+	actually go to the refined member, rather than the parent's verion
+	of that member.
+
+	binds to a RefinedType.
+	is a Singleton type.
+
+SkolemType
+	An existential type has the form T forSome { Q },
+	where Q binds one or more type members of T.
+	A type instance of T forSome { Q } involves a substution of bindings in Q
+	for types in T. In this way it seems to be like a type refinement???
+	A skolemization of T forSome { Q } is like instantiation, except that
+	bound types are substituted by fresh abstract types.
+	A skolemization is a singleton type (which seems to be a consequence of
+	introducing fresh types).
+	(See: section on Existential Types in Scala Reference manual.)
+
+	But: Symbols cannot have types that contain skolems.
+	(See: uses of assertNoSkolems in SymDenotations.scala.)
+
+	is a Singleton type.
+
+TypeVar
+	is created for each argument type to be inferred in a type application.
+	can be instantiated.
+

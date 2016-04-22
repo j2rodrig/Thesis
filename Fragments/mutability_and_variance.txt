@@ -1,0 +1,138 @@
+
+
+trait ST {
+	private[this] val _elem: SR
+	def elem: SR
+	def elem_=(sr: SR): Unit
+}
+
+trait STINV[SR] {  // SR bounded >: @mutable <: @readonly
+	def elem: SR
+	def elem_=(sr: SR): Unit
+}
+
+trait STCOV[+SR] {
+	def elem: SR
+	
+	def elem: @readonly   // can assign to @readonly only
+	def elem: @mutable    // can assign to @mutable or @readonly
+	
+	protected[this] def elem_=(sr: SR): Unit  // cache writer: allows produced objects to be cached
+
+	protected[this] def elem_=(@readonly)  // can pass @mutable or @readonly - able to return @readonly
+	protected[this] def elem_=(@mutable)   // can pass @mutable only - able to return either
+}
+
+trait STCTR[-SR] {
+	protected[this] def elem: SR  // flags: <accessor> <local>
+	def elem_=(sr: SR): Unit      // flags: <accessor>
+	
+	def elem_=(@mutable)   // can pass @mutable only
+	def elem_=(@readonly)  // can pass @mutable or @readonly
+	protected[this] def elem: @mutable   // can assign @mutable only - OK
+	protected[this] def elem: @readonly  // can assign @mutable or @readonly - OK
+}
+
+Iterators:
+ Input iterators are naturally covariant? (
+   @mutable this == iteration over possibly-immutable thing;
+   @readonly this == polling of possibly-mutable thing... -> means no memory side-effects, but underlying world could mutate)
+ Output iterators are naturally contravariant?
+
+List example:
+  trait ImmList[+T @readonly] { def head: T; protected[this] def head_=(t: T): Unit }
+  
+  def read(i: ImmList[Any]): Any = i.head
+  read(ImmList[SR @mutable])  // OK
+
+COV rules:
+ trait Temp0[+SR] { val _elem: SR; def elem: SR }  // _elem can't be var or private[this]; Generates def _elem: SR
+ trait Temp6[+SR] { private[Temp6] val _elem: SR; def elem: SR }
+ trait Temp9[+SR] { protected[this] var _elem: SR; def elem: SR }  // protected[this] setter allowed!
+
+CTR rules:
+ trait Temp1[-SR] { protected[this] var _elem: SR; def elem_=(sr: SR): Unit }  // _elem can't be private[this];
+   def _elem: SR is only visible to this and derived classes;
+   assuming CTR means this _consumes_ things SR, is the protected[this] getter allowed for caching purposes?
+   (that is) allows consumed objects to be stored and retrieved, but only by the current object...
+* ERROR  trait Temp2[-SR] { protected[Temp2] var _elem: SR; def elem_=(sr: SR): Unit }  // covariant def _elem: SR  not allowed
+* ERROR  trait Temp7[-SR] { private[Temp7] var _elem: SR; def elem_=(sr: SR): Unit }
+ trait Temp8[-SR] { protected[this] def elem: SR; def elem_=(sr: SR): Unit }  // protected[this] getter allowed!
+
+INV rules:
+ trait Temp3[SR] { protected[this] var _elem: SR }  // _elem can't be private[this]
+ trait Temp4[SR] { protected[Temp4] var _elem: SR }
+ trait Temp5[SR] { private[Temp5] var _elem: SR }
+
+// *( SR stands for "Some Reference" - a specific trait that inherits AnyRef )
+
+LIST EXAMPLE
+
+trait List[+A] {
+	def head: A
+	def tail: List[A]
+}
+
+trait DerivedList[+B] extends List[B] {
+	val head: B          // generates accessor method def head: B
+	val tail: List[B]    // generates accessor method def tail: List[B]
+}
+
+The accessor annotation denotes viewpoint adaptation of the result.
+The accessor annotation allows a method to be overridden by a val.
+
+trait List[+A] {
+	def head: A
+	@accessor def tail: List[A]
+}
+
+trait DerivedList[+B] extends List[B] {
+	@nonrep val head: B
+	val tail: List[B]
+}
+
+There is a symmetry here: @accessor is the method equivalent of @rep, and @nonrep is the field equivalent of a non-accessor method.
+ Adapted method: @accessor
+ Adapted field: @rep (default)
+ Unadapted method: (no annotation)
+ Unadapted field: @nonrep
+
+
+
+Viewpoint Adaptation: Accessor Methods
+
+In general:
+
+  val elem: S
+  
+translates to:
+
+  @accessor def elem: S
+
+which means:
+
+  @polyread(this) def elem: LUB(S,@polyread)
+
+
+In general again:
+
+  @readonly val elem: S
+  
+translates to:
+
+  @readonly @accessor def elem: S
+
+which means:
+
+  @readonly(this) def elem: LUB(S,@readonly)
+
+
+In general for mutables:
+
+  var elem: S
+
+generates an accesor:
+
+  def elem_=(s:S): Unit
+
+which doesn't require viewpoint adaptation.

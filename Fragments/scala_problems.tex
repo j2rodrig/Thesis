@@ -1,0 +1,361 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{alltt}
+\usepackage{amsmath}
+\usepackage[greek,english]{babel}
+%\usepackage{booktabs}
+%\usepackage{cite}
+%\usepackage{color}
+\usepackage{fixltx2e}
+\usepackage[T1]{fontenc}
+%\usepackage{fullpage}
+\usepackage[top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+%\usepackage{mathtools}
+\usepackage{mdwlist}
+%\usepackage{needspace}
+\usepackage{url}
+\usepackage{verbatim}
+\usepackage{xspace}
+
+% Fonts and symbols
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage[scaled=.65]{beramono}
+\usepackage{courier}
+\usepackage{times}
+
+\newenvironment{absolutelynopagebreak}
+  {\par\nobreak\vfill\penalty0\vfilneg
+   \vtop\bgroup}
+  {\par\xdef\tpd{\the\prevdepth}\egroup
+   \prevdepth=\tpd}
+
+\newcommand{\greekmu}{\greektext m\latintext}
+
+\newcommand{\tab}[0]{\hspace{0.4cm}}
+
+\renewcommand{\ttdefault}{txtt}
+
+\lstset{
+	basicstyle=\footnotesize\ttfamily,
+	tabsize=4,
+	extendedchars=true,
+	breaklines=true,
+	escapeinside={(*}{*)},
+	%frame=l,  % trbl for single-line frames, TRBL for double-line frames
+	xleftmargin=1.5\parindent
+}
+
+\newcommand{\code}[1]{\lstinline$#1$}
+
+
+
+\begin{document}
+
+\def\redcolor{\color{red}}
+\def\greencolor{\color{green!60!black}}
+\def\bluecolor{\color{blue}}
+\def\blackcolor{\color{black}}
+
+
+%Scala-specific problems
+% Background and Previous work
+% Nested Methods/Deeply nested methods
+% Classes within methods/Classes within classes
+% Closures
+% Annotation system (with defaults)
+
+
+\section{Scala-specific Problems}
+
+
+\subsection{Problems with the Previous Solution}
+
+One purpose of this work is to permit programmers to declare that certain methods are
+functionally pure.
+Pure methods cannot modify anything in their prestates, including variables in
+their enclosing environments.
+
+Scala permits code like the following:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g() = {
+			v = ...
+		}
+		g()
+	}
+\end{lstlisting}
+
+It should be possible to prove that \code{f} is pure
+even though \code{g} modifies \code{v}.
+Under the previously-propsed system, \code{g} was implicitly passed a reference to the runtime frame of \code{f},
+and accesses to variables defined in \code{f} use this reference (implicit elements are shown within comments):
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g(/*f: @mutable*/) = {
+			/*f.*/v = ...
+		}
+		g(/*current_stack_frame*/)
+	}
+\end{lstlisting}
+
+I proposed that the annotation \code{@mutable(f)} be placed on method \code{g} to denote the
+mutability of the implicit parameter.
+However, I have discovered that Scala does not permit arbitrary symbols as arguments to annotations.
+Rather, annotation arguments must be compilable expressions.
+
+Where a method name is passed as an argument,
+it is handled like a method application:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		@mutable(f) def g() = { // error: cyclic reference involving method f
+			/*f.*/v = ...
+		}
+		g(/*current_stack_frame*/)
+	}
+\end{lstlisting}
+
+For similar reasons, class and trait names cannot be passed directly as arguments:
+
+\begin{lstlisting}
+	class C {
+		@mutable(C) def f() = ...        // error: not found: C
+		@mutable(this) def f() = ...     // OK
+		@mutable(C.this) def f() = ...   // OK
+		@mutable(new C()) def f() = ...  // OK (although perhaps not useful)
+	}
+\end{lstlisting}
+
+Therefore, a new solution is needed.
+
+\subsection{New Solution}
+
+I think it makes more sense to pass references to enclosing-scope variables as parameters.
+For example:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g(/*reference_to_v: @mutable*/) = {
+			v = ...
+		}
+		g(/*reference_to_v*/)
+	}
+\end{lstlisting}
+
+Using an annotation to declare the mutability of \code{v} in \code{g}:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		@mutable(v) def g(/*reference_to_v: @mutable*/) = {
+			v = ...
+		}
+		g(/*reference_to_v*/)
+	}
+\end{lstlisting}
+
+
+\subsection{Accessing Class/Trait Environments}
+
+Classes and traits can be nested within methods or other classes/traits.
+Methods of those classes can mutate variables in the outer environment:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		class C() {
+			def g() = {
+				v = ...
+			}
+		}
+		val c = new C()
+		c.g()
+	}
+\end{lstlisting}
+
+
+The reference to \code{v} is captured as a member of class \code{C}.
+Showing extra parameters:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		class C(/*reference_to_v: @mutable*/) {
+			def g(/*this: @mutable*/) = {
+				/*this.*/v = ...
+			}
+		}
+		val c = new C(/*reference_to_v*/)
+		c.g(/*c*/)
+	}
+\end{lstlisting}
+
+The reference to \code{v} must be available where the instance of \code{C} is created,
+but it does not need to be available at the call site of \code{c.g}.
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		@mutable(v) class C(/*reference_to_v: @mutable*/) {
+			@mutable(this) def g(/*this: @mutable*/) = {
+				/*this.*/v = ...
+			}
+		}
+		val c = new C(/*reference_to_v*/)
+		c.g(/*c*/)
+	}
+\end{lstlisting}
+
+
+\begin{lstlisting}
+	trait E() {
+		def g()
+	}
+	def f(): E = {
+		var v = ...
+		class C() extends E() {
+			def g() = {
+				v = ...
+			}
+		}
+		val c = new C()
+		return c
+	}
+	val e = f()
+	e.g()
+\end{lstlisting}
+
+
+\begin{lstlisting}
+	trait E() {
+		def g()
+	}
+	def f(): E = {
+		var v = ...
+		class C() extends E() {
+			def g() = {
+				v = ...
+			}
+		}
+		val c = new C()
+		return c
+	}
+	val e = f()
+	e.g()
+\end{lstlisting}
+
+
+
+
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g() = {
+			def h() = {
+				v = ...
+			}
+			h()
+		}
+		g()
+	}
+\end{lstlisting}
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g(/*v: @mutable*/) = {
+			def h(/*v: @mutable*/) = {
+				v = ...
+			}
+			h(/*v*/)
+		}
+		g(/*v*/))
+	}
+\end{lstlisting}
+
+
+
+\subsection{Paths to }
+
+	class C {
+		var v = ...
+		class D {
+			def f() = {
+				v = ...
+			}
+		}
+	}
+
+\section{Closures}
+
+Closure creation involves instantiating an anonymous closure class.
+For example, consider the following creation and execution of a closure:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g() = {
+			v = ...
+		}
+		val cl_g = g _   // partial evaluation of g
+		cl_g()           // execution of g
+	}
+\end{lstlisting}
+
+The above is roughly equivalent to:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g() = {
+			v = ...
+		}
+		class AnonymousClosure() {
+			def apply() = g()
+		}
+		val cl_g = new AnonymousClosure()
+		cl_g.apply()
+	}
+\end{lstlisting}
+
+Adding implicit parameters:
+
+\begin{lstlisting}
+	def f() = {
+		var v = ...
+		def g(/*v: @mutable*/) = {
+			v = ...
+		}
+		class AnonymousClosure(/*v: @mutable*/) {
+			def apply(/*this: @mutable*/) = {
+				g(/*this.v*/)
+			}
+		}
+		val cl_g = new AnonymousClosure(/*v*/)
+		cl_g.apply(/*cl_g*/)
+	}
+\end{lstlisting}
+
+The \code{AnonymousClosure} class takes the same extra parameters as \code{g}.
+
+\subsection{A Brief Note on Defaults}
+
+Like the previous proposal, declaring some variables as \emph{mutable} via the \code{@mutable(...)} annotation
+means that all other enclosing-scope parameters are \emph{readonly}.
+An empty mutation list \code{@mutable()} means that all enclosing-scope variables are \emph{readonly}.
+
+If no enclosing-scope annotations are given, then all enclosing-scope variables are assumed \emph{mutable}.
+
+
+\end{document}

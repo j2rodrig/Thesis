@@ -1,0 +1,1043 @@
+\documentclass{beamer}
+
+\usepackage{comment}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\usepackage{multirow}
+\usepackage{url}
+\usepackage{xcolor}
+
+\newcommand{\tab}[0]{\hspace{0.4cm}}
+
+\renewcommand{\ttdefault}{txtt}
+
+\lstset{
+	basicstyle=\footnotesize\ttfamily,
+	tabsize=4,
+	extendedchars=true,
+	breaklines=true,
+	escapeinside={(*}{*)},
+	%frame=l,  % trbl for single-line frames, TRBL for double-line frames
+	%xleftmargin=1.5\parindent
+}
+
+\newcommand{\code}[1]{\lstinline$#1$}
+
+\usetheme{CambridgeUS}
+
+\begin{document}
+	
+	\title{Reference Immutability for Scala}
+	\author{Jonathan Rodriguez}
+	\institute[Univ. of Waterloo]{David R. Cheriton School of Computer Science\\University of Waterloo}
+	%\institute{University of Waterloo}
+	\date{July 18, 2014}
+	\frame{\titlepage}
+	
+	\AtBeginSection[]
+	{
+	\begin{frame}
+		\frametitle{Outline}
+		\tableofcontents[currentsection]
+	\end{frame}
+	}
+
+%introducing reference immutability
+	%motivational example (in C and Java): constraints on a list
+	%reference immutability as a constraint system: mutable <: polyread <: readonly ...
+		%other binary constraints are possible...
+	%RI as an ownership system: owners-as-modifiers
+	%RI as a restriction on aliasing
+	%RI and side effects. purity/concurrency: not quite strong enough, but a good start
+	%Related work: ReIm (no generics), Efftp, Javari, JPure
+%
+	%viewpoint adaptation examples (Java? C?)
+	%exactly what I'm doing and not doing (Javari features, but I'm only doing readonly)
+	%generic types: (also to support arrays.) list example, example where const is appropriate.
+	%local type inference
+%challenges presented by Scala
+	%principle: an RI annotation is allowed on any type expression: maximal re-use of Scala's existing type inference and checking
+		% data types vs. RI types: A <: B if A's data type <: B's data type AND ...
+	%principle: don't break legacy code (if it's not annotated, RI system has no effect)
+	%principle: incremental annotation (perhaps like C++ const)
+	%nested methods
+		% extra parameters
+	%closures
+		% hidden extra parameters
+%evaluation
+
+\section{Understanding Reference Immutability}
+
+	\subsection{Motivational Example}
+
+\def\redcolor{\color{red}}
+\def\greencolor{\color{green!60!black}}
+\def\bluecolor{\color{blue}}
+\def\blackcolor{\color{black}}
+
+\begin{frame}[containsverbatim]
+\frametitle{A List of Integers (in Java)}
+Without annotations, arbitrary mutations of \code{list} are permitted:
+\begin{lstlisting}
+	class List {
+		public int elem;
+		public List tail;
+	}
+	List list = ...;
+	list.elem = ...;          // Allowed
+	list.tail = ...;          // Allowed
+	list.tail.elem = ...;     // Allowed
+	list.tail.tail = ...;     // Allowed
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{A List of Integers (in C)}
+Without annotations, arbitrary mutations of \code{list} are permitted:
+\begin{lstlisting}
+	struct List {
+		int elem;
+		struct List * tail;
+	};
+	struct List * list = ...;
+	list->elem = ...;         // Allowed
+	list->tail = ...;         // Allowed
+	list->tail->elem = ...;   // Allowed
+	list->tail->tail = ...;   // Allowed
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{A List of Integers (in C)}
+Adding ``\code{const}'' prohibits top-level mutations:
+\begin{lstlisting}[escapechar=`]
+	struct List {
+		int elem;
+		struct List * tail;
+	};
+	`\aftergroup\redcolor`const`\aftergroup\blackcolor` struct List * list = ...;
+	list->elem = ...;         `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	list->tail = ...;         `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	list->tail->elem = ...;   // Allowed
+	list->tail->tail = ...;   // Allowed
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{A List of Integers (in C)}
+A hypothetical ``\code{readonly}'' would prohibit mutations transitively:
+\begin{lstlisting}[escapechar=`]
+	struct List {
+		int elem;
+		struct List * tail;
+	};
+	`\aftergroup\redcolor`readonly`\aftergroup\blackcolor` struct List * list = ...;
+	list->elem = ...;         `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	list->tail = ...;         `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	list->tail->elem = ...;   `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	list->tail->tail = ...;   `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{A List of Integers (in C)}
+The ``\code{readonly}'' constraint cannot be violated by assignment:
+\begin{lstlisting}[escapechar=`]
+	struct List {
+		int elem;
+		struct List * tail;
+	};
+	readonly struct List * list = ...;
+	struct List * alias_tail = list->tail;  `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	alias_tail->elem = ...;
+	alias_tail->tail = ...;
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{A List of Integers (in C)}
+Or by a function argument:
+\begin{lstlisting}[escapechar=`]
+	struct List {
+		int elem;
+		struct List * tail;
+	};
+	void setElement(struct List * list, int value) {
+		list->elem = value;
+	}
+	readonly struct List * list = ...;
+	setElement(list, 0);        `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	setElement(list->tail, 0);  `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{A List of Integers (in C)}
+Or by return value:
+\begin{lstlisting}[escapechar=`]
+	struct List {
+		int elem;
+		struct List * tail;
+	};
+	struct List * getTail(readonly struct List * list) {
+		return list->tail;     `\aftergroup\redcolor`// Not allowed`\aftergroup\blackcolor`
+	}
+\end{lstlisting}
+\end{frame}
+
+	\subsection{Reference Immutability as a Type System}
+
+\begin{frame}[containsverbatim]
+\frametitle{Reference Immutability as a Type System}
+	Enforcing \code{readonly} restricts the set of valid programs --\\
+	\code{readonly} is therefore a \emph{type} or a \emph{constraint}.\\
+\hfill\\
+	Reference immutability types form a simple hierarchy:
+\begin{center}
+	\code{mutable <: polyread <: readonly}
+\end{center}
+%In addition to \code{readonly}, the following types are defined:
+\begin{itemize}
+\item \code{mutable} is the absence of \code{readonly}.
+\item \code{polyread} is an \emph{unadapted type}.\\
+	It must behave correctly in \code{mutable} or \code{readonly} contexts.\\
+	(More on \code{polyread} later.)   % in viewpoint adapation section.
+	%that may or may not be
+	%treated as \code{readonly}, depending on context.
+%Reference immutability types
+\end{itemize}
+\end{frame}
+
+%\begin{frame}[containsverbatim]
+%\frametitle{Reference Immutability as a Type System}
+%\end{frame}
+
+
+	\subsection{Other Perspectives}
+	% ownership, owners-as-modifiers
+		% (response to owners-as-dominators: heavy annotations, inflexible, requiring substantial refactoring)
+	% aliasing restrictions
+	% memory side-effect restrictions
+
+\begin{comment}
+\begin{frame}[containsverbatim]
+\frametitle{Reference Immutability as an Ownership Type Discipline}
+\emph{Ownership types} express patterns
+of object \emph{ownership} or \emph{containment}.
+\begin{itemize}
+\item E.g., a list object may \emph{own} its elements.
+\end{itemize}
+\hfill\\
+\hfill\\
+Reference immutability belongs to the \emph{owners-as-modifiers}
+discipline.
+\begin{itemize}
+\item Each object \emph{owns} objects reachable through non-\code{readonly} fields.
+\item An object's methods may modify owned objects.
+\item Unowned objects may be read, but not modified.
+\item Ownership is not confined to a tree structure -- ownership may be cyclical.
+\end{itemize}
+\end{frame}
+\end{comment}
+
+\begin{frame}[containsverbatim]
+\frametitle{Reference Immutability as Aliasing Control}
+Reference immutability controls the effects of object aliasing.
+\begin{itemize}
+\item Aliases may be propagated anywhere, but not all aliases can be used to mutate objects.
+\item Pure functional programming is one extreme -- all references are \code{readonly}.
+\end{itemize}
+Reference immutability is not object immutability.
+\begin{itemize}
+\item \emph{Object immutability} is a guarantee that an object cannot be modified after creation.
+\item Reference immutability only guarantees that modifications cannot occur through specific references --
+	object immutability is guaranteed where \emph{all} references to an object are \code{readonly}.
+\end{itemize}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Reference Immutability as Side Effect Control}
+In-memory side effects may only occur through \code{mutable} references.
+\begin{itemize}
+\item If all of a function's parameters are \code{readonly}, then
+	that function is \emph{pure} or \emph{side-effect free}.
+\item Pure functions may still mutate freshly-created objects,
+	but those objects are not visible to external observers.
+\end{itemize}
+\end{frame}
+
+
+%--------- 8 MINUTES ---------%
+
+
+\section{Features of Reference Immutability Systems}
+
+	\subsection{Local Inference, Viewpoint Adaptation, Generic Types}
+	%local inference for lightening the annotation burden
+	%viewpoint adaptation for preventing code duplication (otherwise, would need readonly and non-readonly methods - code example)
+	%generic types: to support, e.g., mutable arrays of readonly elements
+	
+	
+\begin{frame}[containsverbatim]   %-- 1.5 min.
+\frametitle{Local Inference}
+Local type inference reduces the annotation burden.
+\begin{itemize}
+\item Particularly important for complex type systems like Scala's.
+\end{itemize}
+For example:
+\begin{lstlisting}[escapechar=`]
+	val readonly_list: List[Int @readonly] @readonly = ...
+	val alias_list = readonly_list
+\end{lstlisting}
+\code{alias_list} should be given the same type as \code{readonly_list}.
+\end{frame}
+
+\begin{frame}[containsverbatim]   %-- 1 min.
+\frametitle{Viewpoint Adaptation}
+\emph{Viewpoint adapation} prevents code duplication when adding \code{readonly}.
+\\\hfill\\
+For example (in Java):
+\begin{lstlisting}[escapechar=`]
+	class List {
+		public int elem;
+		public List tail;
+	}
+	List getTail(List list) {
+		return list.tail;
+	}
+\end{lstlisting}
+\redcolor Problem: Can't call \code{getTail} with a \code{readonly} argument. \blackcolor
+\end{frame}
+
+\begin{frame}[containsverbatim]   %-- 1 min.
+\frametitle{Viewpoint Adaptation}
+\greencolor Option 1. Overload \code{getTail} \blackcolor
+\begin{lstlisting}[escapechar=`]
+	List getTail(List list) {
+		return list.tail;
+	}
+	readonly List getTail(readonly List list) {
+		return list.tail;
+	}
+\end{lstlisting}
+\greencolor Option 2. Use generics \blackcolor
+\begin{lstlisting}[escapechar=`]
+	<T extends readonly> List<T> getTail(List<T> list) {
+		return list.tail;
+	}
+\end{lstlisting}
+\greencolor Option 3. Use \code{polyread} \blackcolor
+\begin{lstlisting}[escapechar=`]
+	polyread List getTail(polyread List list) {
+		return list.tail;
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]   %-- 1.5 min.
+\frametitle{Viewpoint Adaptation}
+\begin{lstlisting}[escapechar=`]
+	polyread List getTail(polyread List list) {
+		return list.tail;
+	}
+\end{lstlisting}
+\begin{itemize}
+\item \code{polyread} is replaced by a specific RI type at each call site.
+\item The specific RI type is the least upper bound of all arguments applied
+	to \code{polyread} parameters. For example:
+\end{itemize}
+\begin{lstlisting}[basicstyle=\scriptsize\ttfamily,escapechar=`]
+	polyread List getOne(polyread List first, polyread List second) {
+		if(first) return first.tail;
+		else return second.tail;
+	}
+	getOne(readonly_list,mutable_list);  // returns readonly
+	getOne(mutable_list,polyread_list);  // returns polyread
+	getOne(mutable_list,mutable_list);   // returns mutable
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]   %-- 2 min.
+\frametitle{Viewpoint Adaptation}
+Viewpoint adaptation is also performed on fields.
+Given a reference \code{list} to an object with field \code{tail}:
+\begin{center}
+\begin{tabular}{cccccc}
+	& {\small Type of }\code{list} & $\triangleright$ & {\small Type of }\code{tail} & $\rightarrow$ & {\small Type of }\code{list.tail} \\
+	\hline
+	%\code{readonly} & $\triangleright$ & -- & $\rightarrow$ & \code{readonly} \\
+	1. & (any) & $\triangleright$ & \code{readonly} & $\rightarrow$ & \code{readonly} \\
+	2. & $q$ & $\triangleright$ & \code{mutable} & $\rightarrow$ & $q$ \\
+	3. & $q$ & $\triangleright$ & \code{polyread} & $\rightarrow$ & $q$ \\
+\end{tabular}
+\end{center}
+Rules 1 and 2 find the least-restrictive type that protects immutability guarantees.\\
+Rule 3 performs viewpoint adaptation of fields.
+\end{frame}
+
+\begin{frame}[containsverbatim]   %-- 1 min.
+\frametitle{Generic Types}
+Reference immutability types may be used in generics:
+\begin{lstlisting}[escapechar=`]
+	class List[E] {
+		var elem: E = ...
+		var tail: List[E] = ...
+	}
+	val mm_list: List[Int] = ...
+	val mr_list: List[Int @readonly] = ...
+	val rm_list: List[Int] @readonly = ...
+	val rr_list: List[Int @readonly] @readonly = ...
+\end{lstlisting}
+Some open questions, e.g.:
+\begin{lstlisting}[escapechar=`]
+	class List[E @readonly] {         `\aftergroup\redcolor`// Allow @readonly here?`\aftergroup\blackcolor`
+		...
+	}
+	val mm_list: List[Int] = ...      `\aftergroup\redcolor`// Default @readonly?`\aftergroup\blackcolor`
+	val mm_list: List[Int @mutable] = ... `\aftergroup\redcolor`// Allow @mutable?`\aftergroup\blackcolor`
+\end{lstlisting}
+\end{frame}
+
+
+	\subsection{Other Features}
+\begin{frame}[containsverbatim]   %-- 1 min.
+\frametitle{Other Features (Not Implemented Here)}
+\begin{itemize}
+\item Whole-program inference (e.g., ReImInfer, JPure, Kneuss et al.).
+\item Using the \code{mutable} keyword to selectively break transitive guarantees (Javari).
+\item Dynamic checking of potentially-unsafe casts (Javari).
+\item Serialization and reflection (Javari).
+\end{itemize}
+\end{frame}
+	% NOT IMPLEMENTED:
+	% whole-program inference (e.g., ReIm, JPure, Kneuss et al.)
+	% removal of readonly via casting (Javari)
+
+
+\section{Reference Immutability for Scala}
+
+	\subsection{New Challenges: Nested Methods, Partially-applied Functions}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+Scala allows nested methods. For example:
+\begin{lstlisting}[escapechar=`]
+	def f() = {
+		var v = ...     // v is defined in the body of f
+		def g() = {
+			v = ...     // f.v is reassigned in g
+		}
+		g()
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+Effect annotations make the mutability of enclosing scopes explicit:
+\begin{lstlisting}[escapechar=`]
+	`\aftergroup\redcolor`@mutable(none)`\aftergroup\blackcolor` def f() = {
+		var v = ...     // v is defined in the body of f
+		`\aftergroup\redcolor`@mutable(f)`\aftergroup\blackcolor` def g() = {
+			v = ...     // f.v is reassigned in g
+		}
+		g()
+	}
+\end{lstlisting}
+\hfill\\
+\hfill\\
+\redcolor \code{@mutable(none)} \blackcolor means all outer scopes are \code{readonly}.\\
+\redcolor \code{@mutable(f)} \blackcolor means the scope named \code{f} must be \code{mutable}.\\
+Default: All outer scopes are mutable.
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+Effect annotations are handled like extra parameters.\\
+For illustration (does not compile):
+\begin{lstlisting}[escapechar=`]
+	def f(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`) = {
+		var v = ...     // v is defined in the body of f
+		def g(`\aftergroup\redcolor`f: @mutable, package: @readonly`\aftergroup\blackcolor`) = {
+			v = ...     // f.v is reassigned in g
+		}
+		g()
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Partially-applied Functions}
+Scala allows partial evaluation:
+\begin{lstlisting}[escapechar=`]
+	def f(): `\aftergroup\redcolor`(() => Unit)`\aftergroup\blackcolor` = {  // f returns a closure
+		var v = ...
+		def g() = {
+			v = ...
+		}
+		return `\aftergroup\redcolor`g _`\aftergroup\blackcolor`      // _ means partial evaluation in Scala
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Partially-applied Functions}
+Partial evaluation creates an anonymous closure object
+(with extra parameters shown):
+\begin{lstlisting}[escapechar=`]
+def f(package: @readonly): ((`\aftergroup\redcolor`this: @mutable`\aftergroup\blackcolor`) => Unit) = {
+	var v = ...
+	def g(f: @mutable, package: @readonly) = {
+		v = ...
+	}
+	`\aftergroup\redcolor`class anonymousClosure(f: @mutable, package: @readonly) {
+		def apply(this: @mutable) = g(this.f, this.package)
+	}`\aftergroup\blackcolor`
+	return new anonymousClosure()
+}
+\end{lstlisting}
+Problem to solve:
+\begin{itemize}
+\item Loss of precision: Can't express that the closure only modifies \code{f}.
+\end{itemize}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Partially-applied Functions}
+Possible annotations:
+\begin{lstlisting}[escapechar=`]
+	(() => Unit) @mutable(all)    // may mutate anything
+	(() => Unit) @mutable(f)      // may mutate scope f
+	(() => Unit) @mutable(none)   // mutates nothing (pure)
+\end{lstlisting}
+\code{@mutable(all)} is the top type, \code{@mutable(none)} is bottom.\\
+Outside of \code{f}, \code{@mutable(f)} has no meaning. For example:
+\begin{lstlisting}[escapechar=`]
+	def f(): (() => Unit) @mutable(all) = {
+		var v = ...
+		@mutable(f) def g() = {
+			v = ...
+		}
+		val closure_g: (() => Unit) @mutable(f) = g _
+		return closure_g
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Classes}
+Nested classes can be treated similarly to nested methods:
+\begin{lstlisting}[escapechar=`]
+	`\aftergroup\redcolor`@mutable(none)`\aftergroup\blackcolor` def f() = {
+		var v = ...
+		`\aftergroup\redcolor`@mutable(f)`\aftergroup\blackcolor` class G {
+			v = ...
+		}
+		val g = new G()
+	}
+\end{lstlisting}
+\code{@mutable(f)} is both a field of \code{G} and a parameter to \code{G}'s default constructor.
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Classes}
+Instances of nested classes can be returned:
+\begin{lstlisting}[escapechar=`]
+	@mutable(none) def f(): E = {
+		var v = ...
+		@mutable(f) class G extends E {
+			v = ...
+		}
+		val g = new G()
+		return g
+	}
+\end{lstlisting}
+\code{G} is not visible outside \code{f}, but an instance can be returned if
+it extends a class \code{E} visible from outside \code{f}.
+\end{frame}
+
+\begin{comment}
+\begin{frame}[containsverbatim]
+\frametitle{Partially-applied Functions}
+\begin{lstlisting}[escapechar=`]
+def f(package: @readonly):
+		((`\aftergroup\redcolor`closure: @mutable, hidden: @mutable`\aftergroup\blackcolor`) => Unit) = {
+	var v = ...
+	def g(f: @mutable, package: @readonly) = {
+		v = ...
+	}
+	`\aftergroup\redcolor`class anonymousClosure(f: @mutable, package: @readonly) {
+		def apply(this: @mutable, f: @mutable) =
+			g(f or this.f, this.package)
+	}`\aftergroup\blackcolor`
+	return `\aftergroup\redcolor`new anonymousClosure()`\aftergroup\blackcolor`
+}
+\end{lstlisting}
+\end{frame}
+\end{comment}
+
+\begin{comment}
+\begin{frame}[containsverbatim]
+\frametitle{Nested Classes}
+Nested classes are annotated much like nested methods:
+\begin{lstlisting}[escapechar=`]
+	`\aftergroup\redcolor`@mutable(none)`\aftergroup\blackcolor` def f() = {
+		var v = ...     // v is defined in the body of f
+		`\aftergroup\redcolor`@mutable(f)`\aftergroup\blackcolor` class G {
+			`\aftergroup\redcolor`@mutable(this)`\aftergroup\blackcolor` def g() = {
+				v = ...     // this.f.v is reassigned in g
+			}
+		}
+	}
+\end{lstlisting}
+\redcolor\code{@mutable(this)} \blackcolor means that the innermost enclosing class (\code{G}) is mutable.
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Classes}
+Alternatively, \code{@mutable(f)} can be placed directly on \code{g}:
+\begin{lstlisting}[escapechar=`]
+	`\aftergroup\redcolor`@mutable(none)`\aftergroup\blackcolor` def f() = {
+		var v = ...     // v is defined in the body of f
+		class G {
+			`\aftergroup\redcolor`@mutable(f)`\aftergroup\blackcolor` def g() = {
+				v = ...     // this.f.v is reassigned in g
+			}
+		}
+	}
+\end{lstlisting}
+A reference to \code{f} is implicitly available as a field of \code{G}.
+\end{frame}
+\end{comment}
+
+\begin{comment}
+\begin{frame}[containsverbatim]
+\frametitle{Nested Classes}
+%What do I want to say here?
+Classes and methods can be arbitrarily nested:
+\begin{lstlisting}[escapechar=`]
+	class C() {
+		def f(): E = {
+			class D() extends E {
+				def g() = {
+				}
+			}
+			return new D()
+		}
+	}
+\end{lstlisting}
+\begin{lstlisting}[escapechar=`]
+	def f(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`) = {
+		var v = ...     // v is defined in the body of f
+		class G(`\aftergroup\redcolor`f: @mutable, package: @readonly`\aftergroup\blackcolor`) {
+			def g(`\aftergroup\redcolor`this: @mutable`\aftergroup\blackcolor`) = {
+				`\aftergroup\redcolor`this.f.`\aftergroup\blackcolor`v = ...     // f.v is reassigned in g
+			}
+		}
+		
+	}
+\end{lstlisting}
+\end{frame}
+\end{comment}
+
+
+
+
+
+\begin{comment}
+\begin{frame}[containsverbatim]
+\frametitle{Partially-applied Functions}
+Partially-applied functions may mutate variables that are no longer in scope.
+For example, let \code{f} return a partial application of \code{g}:
+\begin{lstlisting}[escapechar=`]
+	`\aftergroup\redcolor`@mutable(none)`\aftergroup\blackcolor` def f(): `\aftergroup\redcolor`(() => Unit)`\aftergroup\blackcolor` = {
+		var v = ...     // v is defined in the body of f
+		`\aftergroup\redcolor`@mutable(f)`\aftergroup\blackcolor` def g() = {
+			v = ...     // f.v is reassigned in g
+		}
+		`\aftergroup\redcolor`return g _`\aftergroup\blackcolor`      // _ means partial application in Scala
+	}
+	val partial_g = f()
+	partial_g()         // g() is executed here
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Partially-applied Functions}
+Inside the compiler, partial application creates a closure object:
+\begin{lstlisting}[escapechar=`]
+	@mutable(none) def f(): (() => Unit) = {
+		var v = ...     // v is defined in the body of f
+		@mutable(f) def g() = {
+			v = ...     // f.v is reassigned in g
+		}
+		`\aftergroup\redcolor`class anonymousClosure {
+			def apply() = g()
+		}
+		return new anonymousClosure()`\aftergroup\blackcolor`
+	}
+	val partial_g = f()
+	partial_g`\aftergroup\redcolor`.apply`\aftergroup\blackcolor`()   // g() is executed here
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Partially-applied Functions}
+The \code{apply} method takes the same enclosing-scope parameters as \code{g}.
+
+The \code{apply} method requires \code{@mutable(f)} because it calls \code{g}, and
+the closure class requires \code{@mutable(f)} because
+\begin{lstlisting}[escapechar=`]
+	@mutable(none) def f(): (() => Unit) `\aftergroup\redcolor`@mutable(inner)`\aftergroup\blackcolor` = {
+		var v = ...     // v is defined in the body of f
+		@mutable(f) def g() = {
+			v = ...     // f.v is reassigned in g
+		}
+		class anonymousClosure {
+			`\aftergroup\redcolor`@mutable(f)`\aftergroup\blackcolor` def apply() = g()
+		}
+		val g_:(()=>Unit)@mutable(f) = new anonymousClosure()
+		g_()
+		return new anonymousClosure()
+	}
+	val partial_g = f()
+	partial_g.apply()   // g() is executed here
+\end{lstlisting}
+\code{@mutable(f)} is replaced by \code{@mutable(inner)} when \code{f} returns.\\
+\code{@mutable(inner)} means that the function mutates \emph{something},
+	but information about \emph{what} has been lost\\
+\end{frame}
+
+
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+\begin{lstlisting}[escapechar=`]
+	def f(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`) = {
+		var v = ...     // v is defined in the body of f
+		class G(`\aftergroup\redcolor`f: @mutable, package: @readonly`\aftergroup\blackcolor`) = {
+			v = ...     // f.v is reassigned in g
+		}
+		new G()
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+\begin{lstlisting}[escapechar=`]
+	class H(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`) {
+	}
+	def f(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`): H = {
+		var v = ...     // v is defined in the body of f
+		class G(`\aftergroup\redcolor`f: @mutable, package: @readonly`\aftergroup\blackcolor`) extends H = {
+			v = ...     // f.v is reassigned in g
+		}
+		return new G()
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+\begin{lstlisting}[escapechar=`]
+	class Closure(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`) {
+		def apply(`\aftergroup\redcolor`this: @readonly`\aftergroup\blackcolor`)
+	}
+	def f(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`): Closure = {
+		var v = ...     // v is defined in the body of f
+		def g(`\aftergroup\redcolor`f: @mutable, package: @readonly`\aftergroup\blackcolor`) = {
+			v = ...     // f.v is reassigned in g
+		}
+		class anonymousClosure(`\aftergroup\redcolor`f: @mutable, package: @readonly`\aftergroup\blackcolor`)
+				extends Closure(`\aftergroup\redcolor`package: @readonly`\aftergroup\blackcolor`) {
+			def apply(`\aftergroup\redcolor`this: @mutable`\aftergroup\blackcolor`) = g(this.f, this.package)
+		}
+		return new G()
+	}
+\end{lstlisting}
+\end{frame}
+
+
+%\begin{comment}
+
+class C(package:@mutable) {
+	def f(this:@mutable) = {
+		class D(f:@mutable,this_C:@mutable) {
+			val this_D:@mutable = ...;
+			def g(this_D:@mutable) = {
+			}
+		}
+	}
+}
+
+def f(package:@mutable,stdout:@mutable) = {
+	def g(f:@mutable,package:@mutable,stdout:@mutable) = {
+		def h(g:@readonly,f:@mutable,package:@mutable,stdout:@mutable) = {
+			def apply(h:@readonly,g:@readonly,f:@mutable,package:@mutable,stdout:@mutable) = {}
+		}
+		h(g,f,package,stdout)
+	}
+}
+
+def f(package:@mutable,stdout:@mutable) = {
+	def g(f:@mutable,package:@mutable,stdout:@mutable) = {
+		class H(g:@readonly,f:@mutable,package:@mutable,stdout:@mutable) {
+			def apply(H:@mutable) = {}  // H.g, H.f, package, stdout
+		}
+		new H(g,f,package,stdout)
+	}
+}
+
+def f(package:@mutable,stdout:@mutable) = {
+	def g(f:@mutable,package:@mutable,stdout:@mutable) = {
+		def h(g:@readonly,f:@mutable,package:@mutable,stdout:@mutable) = {
+		}
+		class anonymousClass
+		h(g,f,package,stdout)
+	}
+}
+
+@mutable(f,package)/*ctor*/ class C() @mutable(hidden)/*apply*/ {
+	@mutable(f,D,package) def apply()
+}
+
+@mutable(hidden) <: @mutable(f) <: @mutable(none)
+
+%\end{comment}
+
+
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+Scala permits arbitrary nesting of classes and methods. For example:
+\begin{lstlisting}[escapechar=`]
+	class C {
+		def f() = {
+			@mutable(f,C) def g() = {
+				class D(g,f,C) extends E {
+					@mutable(D)  means this
+					@mutable(g)  means this.g
+					@mutable(f)  means this.f
+					@mutable(C)  means this.C
+					
+					@mutable(C,f,g,this) def apply() = ...
+				}
+				
+				val d: E = new D(g,f,this)
+				d.apply(d.C, d.f, d.g, d)  // we don't actually know what scopes are being closed over here.
+				  // b/c the type E doesn't know about concrete extension D, or D's environment.
+				
+				@mutable(g)   means g
+				@mutable(f)   means f
+				@mutable(C)   means this
+			}
+			g(f, this)
+		}
+		@mutable(C)   means this
+	}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\frametitle{Nested Methods}
+Scala permits arbitrary nesting of classes and methods. For example:
+\begin{lstlisting}[escapechar=`]
+	class C {
+		def f() = {
+			def g() = {
+				class D {
+				}
+			}
+		}
+	}
+\end{lstlisting}
+\end{frame}
+\end{comment}
+
+	\subsection{Playing Nicely with Scala's Type System}
+
+\begin{frame}
+\frametitle{Playing Nicely with Scala's Type System}
+Required changes to the type system:
+\begin{itemize}
+	%\item Setting a default RI type where annotations do not exist.
+	%\item Modifying the subtyping relationship: \code{A} can only be a subtype of \code{B}
+	%	 if the RI type of \code{A} is a subtype of the RI type of \code{B}.
+	\item Modifying the \emph{subtype-of} relationship to include RI types.
+	\item Modifying the RI type at dereference/select sites. (Transitive Typing)
+	\item Modifying the returned RI type at call sites. (Viewpoint Adaptation)  % Also: interrupt default type checking for polyread parameters so that readonly arguments are compatible with polyread params. Overload/implicit resolution will also need to match polyread params.
+	\item Setting default RI types on unannotated type expressions.
+\end{itemize}
+Changes that are \emph{not} required:
+\begin{itemize}
+\item Transforming the abstract syntax tree.
+\item Changing the default order in which types are inferred by Scala.
+\item Changing the inferred type of any AST node (except for RI types).
+\end{itemize}
+\end{frame}
+
+\section{Evaluation and Future Work}
+	%sanity check
+	%code example?
+	
+	%safe constraint: a stronger (more restrictive) constraint on aliasing, useful for concurrency
+	%I/O effects: ???
+
+\begin{frame}
+\frametitle{Evaluation Questions}
+Does this Reference Immutability system for Scala:
+\begin{itemize}
+	\item allow for easy incremental annotation
+	of existing code, or are there cases where large numbers of annotations must
+	be added at the same time?
+	\item achieve near-maximal RI typings with few annotations,
+	or does most code have to be heavily annotated to achieve near-maximal typings?
+	\item precisely express functional purity where purity exists,
+	or is it too imprecise to express purity in some cases?
+\end{itemize}
+Answers to use examples from the standard library, compiler,
+and other programs.
+\end{frame}
+
+\begin{frame}
+\frametitle{Future Work}
+Reference Immutability is an instance of a general constraint typing:
+\begin{center}
+	\code{unconstrained <: maybe_constrained <: constrained}
+\end{center}
+Sălcianu and Rinard (2005) infer \code{readonly} and a stronger constraint \code{safe}.
+\begin{itemize}
+\item \code{safe} merely adds a few extra aliasing restrictions.
+\end{itemize}
+\hfill\\
+\hfill\\
+Are there other useful transitive constraints?
+\end{frame}
+
+\begin{frame}
+\frametitle{Future Work}
+More questions:
+\begin{itemize}
+\item How to protect functions from \emph{observational exposure}?\\
+	Pure functions can still observe side effects produced by impure functions,
+	unless aliasing is further constrained.
+\item Some mutations of an object's concrete state do not affect observable state (e.g., memoization).
+	Javari allows programmers to declare that certain fields do not belong to observable state,
+	but it does not offer any way of automatically checking this.
+	Is there a way to \emph{guarantee} that the abstract state remains unchanged under certain mutations?
+
+\end{itemize}
+\end{frame}
+
+\begin{comment}
+\section{(Temporary)}
+
+\defverbatim\ListingOne{%
+\begin{lstlisting}
+	class List {
+		public int head = ...;
+		public List tail = ...;
+	}
+	List list = ...;
+	list.head = ...;
+	list.tail = ...;
+	list.tail.head = ...;
+	list.tail.tail = ...;
+\end{lstlisting}}
+
+\begin{frame}[allowframebreaks]{MyListing}
+	\ListingOne
+\end{frame}
+
+\begin{frame}[containsverbatim]
+\begin{center}
+\begin{tabular}{c|c}
+\textbf{Java:} & \textbf{C:} \\
+\hline
+\begin{lstlisting}
+class List {
+	public int head;
+	public List tail;
+}
+List list = ...;
+list.head = ...;
+list.tail = ...;
+list.tail.head = ...;
+list.tail.tail = ...;
+\end{lstlisting}
+&
+\begin{lstlisting}
+struct List {
+	int elem;
+	struct List * tail;
+};
+struct List * list = ...;
+list->elem = ...;
+list->tail = ...;
+list->tail->elem = ...;
+list->tail->tail = ...;
+\end{lstlisting}
+\end{tabular}
+\end{center}
+\end{frame}
+\end{comment}
+
+\begin{comment}
+\begin{frame}[containsverbatim]
+\begin{lstlisting}
+struct List {
+	int elem;
+	struct List * tail;
+};
+
+readonly struct List * list = ...;
+
+list->elem = ...;         // Not allowed
+list->tail = ...;         // Not allowed
+list->tail->elem = ...;   // Not allowed
+list->tail->tail = ...;   // Not allowed
+\end{lstlisting}
+\end{frame}
+
+	\defverbatim\ListingOne{%
+	\begin{lstlisting}
+	class List {
+		public int head = ...;
+		public List tail = ...;
+	}
+	List list = ...;
+	list.head = ...;
+	list.tail = ...;
+	list.tail.head = ...;
+	list.tail.tail = ...;
+	\end{lstlisting}
+	}
+	
+	\begin{frame}[allowframebreaks]{MyListing}
+	\title{List Example}
+
+	\begin{center}
+	\begin{tabular}{c|c}
+	%\ListingOne
+	&
+	Hi!
+	\\
+	\end{tabular}
+	\end{center}
+	
+	\end{frame}
+
+	% mutable <:   polyread   <: readonly
+	%   no    <: undetermined <:  yes
+	
+	
+	% side effects & purity
+	
+	% limitations: concurrency
+	
+	\begin{frame}[fragile]
+	\end{frame}
+\end{comment}
+	
+\end{document}
