@@ -21,9 +21,11 @@ Order of transformation: Innermost methods first?
 
 The first step I take is to represent method definitions as class definitions. This change in representation helps define what happens semantically when (e.g.) a nested class refers to local variables or parameters of an enclosing method. Furthermore, by representing method definitions as class definitions, the number of distinct cases that must be addressed later in the discussion is reduced. The latter discussion only needs a treatment of the class-inside-class case---rather than discussing method-inside-method, method-inside-class, class-inside-method, and class-inside-class as separate cases.
 
-A key insight here is that a method's local variables need not be stored on the stack; the high-level semantics of the language are preserved regardless of whether local variables exist on the stack or the heap. In fact, in some cases it it necessary to store local variables on the heap---in particular, heap storage is necessary when those local variables remain visible (and mutable!) to an inner class instance after the method returns.
+A key insight here is that a method's local variables need not be stored on the stack; the high-level semantics of the language are preserved regardless of whether local variables exist on the stack or the heap. In fact, in some cases it it necessary to store local variables on the heap---in particular, heap storage is necessary when those local variables remain visible to (and assignable by!) an inner class instance after the method returns.
 
-A second key insight is that object construction is more powerful than ordinary method invocation. Object construction involves both an allocation of memory and an invocation of an initializer method. Ordinary method invocation also allocates memory, typically on the stack. The key semantic distinction is that an object survives the completion of its initializer, whereas the memory allocated for an ordinary method call is typically lost immediately upon completion. It is therefore reasonably straightforward to use object construction to simulate ordinary method invocation, but not vice versa.
+A second key insight is that object construction is more powerful than ordinary method invocation. Object construction involves both an allocation of heap memory and an invocation of an initializer method. Like ordinary methods, initializer methods can execute arbitrary computations. The key semantic distinction is that ...
+
+Ordinary method invocation also allocates memory, typically on the stack. The key semantic distinction is that an object survives the completion of its initializer, whereas the memory allocated for an ordinary method call is typically lost immediately upon completion. It is therefore reasonably straightforward to use object construction to simulate ordinary method invocation, but not vice versa.
 
 Consider the general method form shown in listing~\ref{lst:meth-1}. Method~{\cd m} inside class~{\cd C} takes a series of parameters~{\cd \ovr{x}} and returns a result of type~{\cd T}. (The overline notation~{\cd \ovr{x}} means that~{\cd x} can represent any of a series of a series of names, similar to the overline notation in Featherweight Java.) Method~{\cd m} initializes a set of local variables~{\cd \ovr{y}} to the results of a set of expressions~{\cd \ovr{e}}. The result of~{\cd m} is the final expression~{\cd e}. (In practice, {\cd m} may also contain some number of statements, which I omit here.)
 
@@ -40,7 +42,7 @@ class C {
 }
 \end{lstlisting}
 
-Adding an explicit {\cd this} reference, the definition and call of~{\cd m} are as shown in listing~\ref{lst:meth-2}. The type of {\cd this} in~{\cd m} is~{\cd C}, and \mbox{{\cd C}'s} {\cd this} is passed explicitly in the call to~{\cd m}.
+Adding an explicit {\cd this} reference, the definition and call of~{\cd m} are as shown in listing~\ref{lst:meth-2}. The type of {\cd this} in~{\cd m} is~{\cd C}, and \mbox{{\cd C}'s} {\cd this} is passed explicitly in the call to~{\cd m}. Also shown is an explicit declaration of {\cd this} as a self reference to the current object of class~{\cd C}.\footnote{Using {\cdf this} as the name of a self reference or a method parameter is not allowed in Dotty. The code in listing~\ref{lst:meth-2} is for explanatory purposes, and won't compile as-is.}
 
 \begin{lstlisting}[float=htbp, caption={Method Transformation 2 (Explicit This)}, label={lst:meth-2}]
 class C {
@@ -78,6 +80,122 @@ class C {
 
 The method call in listing~\ref{lst:meth-2} becomes a constructor call in listing~\ref{lst:meth-3}. 
 
+% 
+
+\subsection{``This'' References Translate To Outer-Accessor Paths}
+
+In Dotty, the keyword {\cd this} is always understood to have a classname prefix. For example, in listing~\ref{lst:this-classname-prefix}, the {\cd this} keyword by itself refers to an instance of the innermost enclosing class~{\cd D}. So {\cd this} by itself is equivalent to \mbox{\cd D.this}.
+
+By giving a different classname as a prefix, {\cd this} can be used to access an enclosing environment. Again in listing~\ref{lst:this-classname-prefix}, \mbox{\cd C.this} refers to an instance of the enclosing class~{\cd C}.
+
+\begin{lstlisting}[float=htbp, caption={``This'' with Classname Prefix}, label={lst:this-classname-prefix}]
+class C {
+	class D {
+		def m() = {
+			this    // same as D.this
+			D.this  // refers to an instance of enclosing class D
+			C.this  // refers to an instance of enclosing class C
+		}
+	}
+}
+\end{lstlisting}
+
+Access to instances of outer classes is mediated by fields containing references to those instances. Since classes may be nested to an arbitrary depth, a single use of {\cd this} may translate to an arbitrarily-long access path. The Dotty compiler internally handles the translation of {\cd this} into outer-accessor paths. The translation of listing~\ref{lst:this-classname-prefix} may produce something like listing~\ref{lst:this-outer-accessor} (shown with explicit receiver references).
+
+\begin{lstlisting}[float=htbp, caption={``This'' to Outer-Accessor Path Translation}, label={lst:this-outer-accessor}]
+class C {
+	class D(_enclosing: C) {
+		var _outer = _enclosing
+
+		def m(_this: D) = {
+			_this         // D.this
+			_this._outer  // C.this
+		}
+	}
+}
+\end{lstlisting}
+
+The {\cd \und enclosing} reference of class~{\cd C} is a synthetic parameter of the initializer of class~{\cd D}, which is stored in the synthetic {\cd \und outer} member of class~{\cd D}. (Synthetic parameters and members are named such that they do not conflict with other synthetic or non-synthetic names.) The method~{\cd m} is able to access the enclosing instance by reading the {\cd \und outer} member.
+
+Note that when an instance of class~{\cd D} is created, it must be passed an implicit reference to the enclosing class~{\cd C}. The reference denoted by the prefix used to select~{\cd D} is the same reference passed to the initializer of~{\cd D}. See listing~\ref{lst:new-path-dep}, which shows the construction of an object of class~{\cd D} from within the initializer of~{\cd C}. The reference to the enclosing environment of~{\cd D} from within the initializer of~{\cd C} is merely \mbox{\cd C.this}.
+
+\begin{lstlisting}[float=htbp, caption={Path Dependence and Enclosing References}, label={lst:new-path-dep}]
+class C {
+	class D(_enclosing: C) {
+	}
+	// The following is equivalent to new D().
+	// D is reached through path C.this.
+	var _enclosing = C.this
+	new _enclosing.D(_enclosing)
+}
+\end{lstlisting}
+
+In general, all constructible types must be reducible to the form \mbox{\cd x.D} where~{\cd x} is a valid term reference and {\cd D} is a class. The same~{\cd x} is the enclosing-object reference passed to the initializer of~{\cd D}.
+
+
+%\subsection{Viewpoint Adaptation and Environment Access Paths}
+
+%The rationale for the foregoing discussion of environment references is to 
+
+% extends ...
+
+\subsection{Environment Access and Inheritance}
+
+Listing~\ref{lst:single-base-env-ref} shows a class~{\cd D} that inherits from another class~{\cd C}. Classes {\cd C}~and {\cd D}~in this listing share a common enclosing environment {\cd Env}. The constructor of~{\cd D} requires a reference to an object of class {\cd Env}, which it passes directly to the constructor of~{\cd C}. If~{\cd C} had a different enclosing class than~{\cd D}, then the path from {\cd \und enclosing} to the environment of~{\cd C} would need to be passed to the constructor of~{\cd C}. 
+
+
+
+\begin{lstlisting}[float=htbp, caption={Single Base Class with Environment Reference}, label={lst:single-base-env-ref}]
+class Env {
+	class C(_enclosing: Env) {
+		...
+	}
+	class D(_enclosing: Env) extends _enclosing.C(_enclosing) {
+		...
+	}
+}
+\end{lstlisting}
+
+Inheritance is not limited to classes.
+Listing~\ref{lst:base-class-trait-env-ref} shows a class~{\cd D} that inherits from another class~{\cd C} and a trait~{\cd L}. What is distinctive about traits (versus classes) here is that trait constructors cannot take arguments. Trait members are {\em linearized}---the inheriting class~{\cd D} contains all members of~{\cd L}, including \mbox{{\cd L}'s} environment reference. It is the job of~\mbox{{\cd D}'s} constructor to initialize {\cd \und outer\und L} to the same reference used to reach the definition of~{\cd L} (which, in this case, is {\cd \und enclosing}).
+
+\begin{lstlisting}[float=htbp, caption={Base Class and Trait with Environment References}, label={lst:base-class-trait-env-ref}]
+class Env {
+	trait L {
+		var _outer_L: Env
+	}
+	class C(_enclosing: Env) {
+		...
+	}
+	class D(_enclosing: Env) extends _enclosing.C(_enclosing) with _enclosing.L {
+		var _outer_L = _enclosing
+		...
+	}
+}
+\end{lstlisting}
+
+\subsection{Viewpoint Adaptation and Environment Access}
+
+
+
+
+\begin{comment}
+
+
+Some translation is performed on constructor calls to handle synthetic outer references, and this translation is related to path-dependent types. In Dotty, types are {\em path-dependent}. The class name {\cd D} by itself is not a type; where~{\cd D} is used without a prefix path, an appropriate prefix path is assumed. (typically \mbox{\cd C.this}, where~{\cd C} is )
+
+In general, for any class~{\cd D} that 
+
+\begin{lstlisting}[float=htbp, caption={}, label={lst:}]
+class C {
+	class D(_enclosing: C) {
+	}
+	new D()
+	new C.this.D()  // with explicit path prefix
+	new C.this.D(C.this)  // with explicit outer reference
+}
+\end{lstlisting}
+
 
 
 
@@ -93,63 +211,4 @@ class _M(this: C, _x: S) = {
 }
 \end{lstlisting}
 
-
-
-\subsection{Classes Within Classes}
-
-\begin{lstlisting}
-class C {
-	...
-	class D(val outer: C) {
-		...
-	}
-	...
-}
-\end{lstlisting}
-
-\subsection{Methods Within Classes}
-
-\begin{lstlisting}
-class C {
-	...
-	def m(this: C) = {
-		...
-	}
-	...
-}
-\end{lstlisting}
-
-\subsection{Methods Within Methods}
-
-\begin{lstlisting}
-class C {
-	def m() = {
-		def n() = {
-			C.this
-			...
-		}
-		var x = ...
-		mResultExpr
-	}
-}
-\end{lstlisting}
-
-\begin{lstlisting}
-class C {
-	def m(this: C) {
-
-		class M(val outer: C) {
-			def n(this: M) {
-				this.outer
-				...
-			}
-			var x = ...
-			val _result = mResultExpr
-		}
-
-		val mClosure = new M(this)
-		mClosure._result
-	}
-}
-\end{lstlisting}
-
+\end{comment}
