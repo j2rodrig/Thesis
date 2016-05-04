@@ -122,12 +122,12 @@ The distinction between {\cd Nothing} and {\cd ReadonlyNothing} is important. Mo
 
 \subsection{Viewpoint Adaptation of Fields}
 
-Type unions and intersectionsare used to perform viewpoint adaptation of field reads.
+Type unions and intersections are used to perform viewpoint adaptation of field reads.
 Given a reference~{\cd t} of type~{\cd T}, and a field~{\cd u} of type~{\cd U}, the type of \mbox{\cd t.u} is:
 \begin{figure}[h]
 \center
 {\cd T \& ReadonlyNothing | U}
-\caption{Viewpoint Adaptation (Field Type {\cd U} with Prefix {\cd T})}
+\caption{Viewpoint Adaptation (Field Type {\cd U} with Prefix Type {\cd T})}
 \label{fig:viewpoint-adapted-type}
 \end{figure}
 
@@ -138,12 +138,109 @@ The subsequent union with type~{\cd U} finds the least upper bound of \mbox{\cd 
 The viewpoint adaptation formula in figure~\ref{fig:viewpoint-adapted-type} protects the transitive reference-immutability guarantee.
 The mutability of the viewpoint-adapted type is the least upper bound of the mutabilities of~{\cd T} and~{\cd U}, which means that it cannot be less restrictive with respect to mutability than either~{\cd T} or~{\cd U}.
 
-\subsection{Polymorphic Mutability Types}
+\subsection{Mutability Extraction and Assignment}
 
+Type unions and intersections are also used to ``extract'' the mutability of any given type.
+Figure~\ref{fig:mutability-of-type} shows the extraction of the mutability portion of an arbitrary type~{\cd T}.
+Note that the formula given in figure~\ref{fig:mutability-of-type} is essentially a viewpoint adaptation of {\cd MutableAny} with a prefix type~{\cd T}.
+
+\begin{figure}[h]
+\center
+{\cd T \& ReadonlyNothing | MutableAny}
+\caption{Mutability of a Type}
+\label{fig:mutability-of-type}
+\end{figure}
+
+Mutability can also be ``assigned'' to a type as shown in figure~\ref{fig:assigning-mutability-to-type}.
+Type~{\cd M} is an arbitrary mutability type, with a lower bound of {\cd MutableAny}. Type~{\cd M} may be 
+The union with {\cd ReadonlyNothing} produces {\cd T} without any mutability permissions, and the subsequent intersection with {\cd M} adds the desired permissions.
+
+\begin{figure}[h]
+\center
+{\cd (T | ReadonlyNothing) \& M} \\
+\caption{Assigning Mutability {\cd M} to a Type {\cd T}}
+\label{fig:assigning-mutability-to-type}
+\end{figure}
+
+By combining mutability extraction and assignment, it is possible to create type with the mutability of a different type. In figure~\ref{fig:assigning-mutability-to-type-2}, a type with the members of {\cd T} and the mutability of {\cd U} is created.
+
+\begin{figure}[h]
+\center
+{\cd U \& ReadonlyNothing | T} \hspace{0.4cm} (where {\cd T} is mutable) \\
+{\cd (T | ReadonlyNothing) \& (U \& ReadonlyNothing | MutableAny)} \hspace{0.4cm} (general case) \\
+\caption{Creating a Type with the Mutability of a Different Type}
+\label{fig:assigning-mutability-to-type-2}
+\end{figure}
+
+The ``building blocks'' of viewpoint adaptation, mutability extraction, and mutability assignment are used to flexibly express reference immutability in a wide variety of code situations.
 
 
 
 \begin{comment}
+
+\subsection{Identities}
+
+Some useful identities are shown in figure~\ref{lst:}. 
+
+\begin{figure}[h]
+\center
+{\cd T | ReadonlyNothing} \\
+
+\caption{Identities}
+\label{fig:assigning-mutability-to-type-2}
+\end{figure}
+
+
+\subsection{Polymorphic Mutability}
+
+Sometimes it is advantageous to express that a type is polymorphic in its mutability.
+
+\begin{lstlisting}[float=htbp, caption={Union with ReadonlyNothing}, label={lst:union-readonlynothing}]
+// Monomorphic method signature
+def m(x: S): U
+
+// Method signature with polymorphic mutability
+def m[P >: MutableAny](x: (S | ReadonlyNothing) & P): (U | ReadonlyNothing) & P
+\end{lstlisting}
+
+\begin{lstlisting}
+Is it reasonable to override:
+	def f[P >: MutableAny](this: (S | ReadonlyNothing) & P): (U | ReadonlyNothing) & P
+with:
+	val f: U
+The question is whether this.f for either case is compatible?
+\end{lstlisting}
+
+\begin{lstlisting}
+Let f be a member of x, and let the type of f be U.
+1. Let the type of x be S.
+
+	The type of x.f is: S & ReadonlyNothing | U
+
+2. Let the type of x be (S | ReadonlyNothing) & P.
+
+	The type of x.f is: (S | ReadonlyNothing) & P & ReadonlyNothing | U
+
+\end{lstlisting}
+
+
+%---
+
+% let T = (S | ReadonlyNothing) & P
+% let f in x and f: U
+% the type of t.u is T & ReadonlyNothing | U
+
+% the type of the return of m is (U | ReadonlyNothing) & P
+% big question: is T & ReadonlyNothing | U <: (U | ReadonlyNothing) & P ?  Or are they equal ?
+
+% T & ReadonlyNothing | U <: (U | ReadonlyNothing) & P
+% (S | ReadonlyNothing) & P & ReadonlyNothing | U <: (U | ReadonlyNothing) & P
+% (S | ReadonlyNothing) & P & ReadonlyNothing | U <: U & P | ReadonlyNothing & P
+% S & P & ReadonlyNothing | P & ReadonlyNothing | U <: U & P | ReadonlyNothing & P
+% U | S & P & ReadonlyNothing | P & ReadonlyNothing <: P & U | P & ReadonlyNothing
+% U | P & ReadonlyNothing <: P & U | P & ReadonlyNothing
+
+% ?  is U | (ReadonlyNothing & P) == (U | ReadonlyNothing) & P  ?
 
 \subsubsection{Discussion of Alternatives: Dynamic Permissions}
 

@@ -2,4 +2,10 @@
 
 \subsection{Mutable and Readonly}
 
+\begin{lstlisting}
+T @mutable       -->       T & MutableAny
+T @readonly      -->       T | ReadonlyNothing
+T @polyread      -->       (T | ReadonlyNothing) & EnvRef_C
+\end{lstlisting}
+
 \subsection{Environment Reference Annotations}

@@ -17,7 +17,7 @@ In contrast, Java has much tighter restrictions on what nested classes are allow
 Order of transformation: Innermost methods first?
 \end{comment}
 
-\subsection{Representation of Method Definitions as Class Definitions}
+\subsection{Representation of Method Definitions as Class Definitions} \label{sec:methdefs-as-classdefs}
 
 The first step I take is to represent method definitions as class definitions. This change in representation helps define what happens semantically when (e.g.) a nested class refers to local variables or parameters of an enclosing method. Furthermore, by representing method definitions as class definitions, the number of distinct cases that must be addressed later in the discussion is reduced. The latter discussion only needs a treatment of the class-inside-class case---rather than discussing method-inside-method, method-inside-class, class-inside-method, and class-inside-class as separate cases.
 
@@ -173,6 +173,82 @@ class Env {
 	}
 }
 \end{lstlisting}
+
+\subsection{Polymorphic Environment References}
+
+% What about the constraint solver? Consider:
+% 	def m[M](x: M): M
+%  When callling m, the fact that M is part of the result type puts a constraint on M.
+%	var y: A
+%	y = m(...)   // constraint: M <: A
+%
+
+% For the below, the "result" field f has type U | M & ReadonlyNothing, yielding the constraint (although not solvable as-is):
+%	U | EnvRef & ReadonlyNothing <: A
+
+Listing~\ref{lst:poly-env-ref} shows a class~{\cd D} with a type parameter {\cd EnvRef}. The type {\cd EnvRef} is abstract, with a lower bound of (mutable) {\cd C} and an upper bound of readonly~{\cd C}. The instantiation of class~{\cd D} in figure~\ref{lst:poly-env-ref} involves setting {\cd EnvRef} to the type of the reference used to reach~{\cd D}.
+
+\begin{lstlisting}[float=htbp, caption={Polymorphic Environment Reference}, label={lst:poly-env-ref}]
+class C {
+	class D[EnvRef >: C <: C | ReadonlyNothing](_enclosing: EnvRef) {
+		var f: EnvRef & ReadonlyNothing | U = ...
+	}
+}
+\end{lstlisting}
+
+Type {\cd EnvRef} can be used within~{\cd D} to support typing of arbitrary viewpoint adaptations. The field~{\cd f} in figure~\ref{lst:poly-env-ref} has a type {\cd U} that is viewpoint-adapted with the prefix type {\cd EnvRef}. The viewpoint adaptation with {\cd EnvRef} allows field~{\cd f} to store the result of a read from the enclosing environment.
+
+The transformation of polymorphic method definitions into class definitions (sec.~\ref{sec:methdefs-as-classdefs}) may result in a class definition like that shown in listing~\ref{lst:poly-env-ref}. Under such a transformation, the result of the method is stored as a field, so it is important that fields be able to store viewpoint-adapted results.
+
+In general, consider the transformation of polymorphic methods with the form shown in listing~\ref{lst:poly-meth-1}. Method~{\cd m} has type parameters~{\cd \ovr{R}} in addition to ordinary parameters~{\cd \ovr{x}}. Each type parameter has a lower bound~{\cd L} and an upper bound~{\cd U}. The result type~{\cd T} may depend on any or all type parameters~{\cd \ovr{R}} (or type members of any~{\cd \ovr{x}}).
+
+\begin{lstlisting}[float=htbp, caption={Polymorphic Method Transformation 1}, label={lst:poly-meth-1}]
+class C {
+	def m[(*\ovr{R}*) >: (*\ovr{L}*) <: (*\ovr{U}*)]((*\ovr{x}*): (*\ovr{S}*)): T = {
+		var (*\ovr{y}*) = (*\ovr{e}*)
+		e
+	}
+}
+\end{lstlisting}
+
+Listing~\ref{lst:poly-meth-2} adds an explicit receiver parameter {\cd this}. In contrast to the monomorphic methods discussed in section~\ref{sec:methdefs-as-classdefs}, the receiver type is the first type parameter {\cd EnvRef}.
+
+\begin{lstlisting}[float=htbp, caption={Polymorphic Method Transformation 2 (Explicit This)}, label={lst:poly-meth-2}]
+class C {
+	def m[EnvRef >: C <: C | ReadonlyNothing, (*\ovr{R}*) >: (*\ovr{L}*) <: (*\ovr{U}*)](this: EnvRef, (*\ovr{x}*): (*\ovr{S}*)): T = {
+		var (*\ovr{y}*) = (*\ovr{e}*)
+		e
+	}
+}
+\end{lstlisting}
+
+Listing~\ref{lst:poly-meth-3} converts the method definition~{\cd m} into the class definition~{\cd \und M}. Type parameters of the method become type parameters of the class constructor. The field {\cd \und result} has type~{\cd T}, an arbitrary type that may depend on any type parameter (including {\cd EnvRef}).
+
+\begin{lstlisting}[float=htbp, caption={Polymorphic Method Transformation 3 (Closure)}, label={lst:poly-meth-3}]
+class C {
+	class _M[EnvRef >: C <: C | ReadonlyNothing, (*\ovr{R}*) >: (*\ovr{L}*) <: (*\ovr{U}*)](_this: EnvRef, (*\ovr{\und x}*): (*\ovr{S}*)) {
+		var _outer = _this         // outer reference stored as field
+		var (*\ovr{x}*) = (*\ovr{\und x}*)                 // parameters stored as fields
+		var (*\ovr{y}*) = (*\ovr{e}*)                  // local variables stored as fields
+		var _result: T = e         // result is stored for post-construction retrieval
+	}
+}
+\end{lstlisting}
+
+
+
+
+\begin{lstlisting}[float=htbp, caption={Polymorphic Environment Reference}, label={lst:poly-env-ref-b}]
+type T = (C | ReadonlyNothing) & M   // for arbitary mutability type M
+var c: T
+new c.D[(T & ReadonlyNothing) | MutableAny](c)
+class C {
+	class D[EnvRef >: MutableAny](_enclosing: (C | ReadonlyNothing) & EnvRef) {
+		var f: (T | ReadonlyNothing) & EnvRef = ...
+	}
+}
+\end{lstlisting}
+
 
 \subsection{Viewpoint Adaptation and Environment Access}
 
