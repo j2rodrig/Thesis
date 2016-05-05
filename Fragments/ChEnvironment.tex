@@ -148,10 +148,10 @@ Listing~\ref{lst:single-base-env-ref} shows a class~{\cd D} that inherits from a
 \begin{lstlisting}[float=htbp, caption={Single Base Class with Environment Reference}, label={lst:single-base-env-ref}]
 class Env {
 	class C(_enclosing: Env) {
-		...
+		var _outer_C = _enclosing
 	}
 	class D(_enclosing: Env) extends _enclosing.C(_enclosing) {
-		...
+		var _outer_D = _enclosing
 	}
 }
 \end{lstlisting}
@@ -165,14 +165,38 @@ class Env {
 		var _outer_L: Env
 	}
 	class C(_enclosing: Env) {
-		...
+		var _outer_C = _enclosing
 	}
 	class D(_enclosing: Env) extends _enclosing.C(_enclosing) with _enclosing.L {
 		var _outer_L = _enclosing
-		...
+		var _outer_D = _enclosing
 	}
 }
 \end{lstlisting}
+
+Environment references in derived classes must be checked for compatibility with the environment references in base classes/traits. Unlike ordinary type checking, the default ``checking'' of environment reference types in the Dotty compiler is not really type checking at all. Rather, the Dotty compiler performs a path dependent lookup of each base class/trait name. Since a successful lookup requires reachability of the base class/trait's environment, a successful lookup entails environment-reference compatibility.
+
+However, the addition of mutability permissions means that derived-class environment-reference types may now be incompatible with base-class/trait environment-reference types, even if the lookups of those bases are successful. Two extra steps are required. First, viewpoint adaptation must be performed along the path used to reach each base class/trait. Second, the mutability of each viewpoint-adapted path must be checked for compatibility with the base class/trait's environment-reference type.
+
+Consider the definition of class~{\cd D} in listing~\ref{lst:base-traits-env-ref}. Class~{\cd D} extends a sequence of traits {\cd L1} ... {\cd Ln}, which are reached through the respective paths {\cd x1} ... {\cd xn}. In general, the type given for any {\cd extends} clause may be represented as the intersection of some sequence of base traits or classes.
+
+\begin{lstlisting}[float=htbp, caption={Base Traits with Environment References}, label={lst:base-traits-env-ref}]
+class Env {
+	class D(_enclosing: M & ReadonlyNothing | Env)
+		extends x1.L1 with x2.L2 ... with xn.Ln
+	{
+		var _outer_L1 = x1
+		...
+		var _outer_Ln = xn
+		var _outer_D = _enclosing
+	}
+}
+\end{lstlisting}
+
+In listing~\ref{lst:base-traits-env-ref}, \mbox{{\cd D}'s} {\cd \und enclosing} parameter has a type with mutability~{\cd M}.
+Each path {\cd x1} ... {\cd xn} is rooted at {\cd Env.this}, which is equivalent to {\cd \und enclosing} (as seen from within the definition of {\cd D}).
+Viewpoint adaptation must be performed along each path {\cd xi}, and the resulting type must be compatible with the type of the corresponding environment reference {\cd\und outer\und Li}.
+
 
 \subsection{Polymorphic Environment References}
 
@@ -222,7 +246,7 @@ class C {
 }
 \end{lstlisting}
 
-Listing~\ref{lst:poly-meth-3} converts the method definition~{\cd m} into the class definition~{\cd \und M}. Type parameters of the method become type parameters of the class constructor. The field {\cd \und result} has type~{\cd T}, an arbitrary type that may depend on any type parameter (including {\cd EnvRef}).
+Listing~\ref{lst:poly-meth-3} converts the method definition~{\cd m} into the class definition~{\cd \und M}. Type parameters of the method become type parameters of the class. The field {\cd \und result} has type~{\cd T}, an arbitrary type that may depend on any type parameter (including {\cd EnvRef}).
 
 \begin{lstlisting}[float=htbp, caption={Polymorphic Method Transformation 3 (Closure)}, label={lst:poly-meth-3}]
 class C {
@@ -236,26 +260,32 @@ class C {
 \end{lstlisting}
 
 
-
-
-\begin{lstlisting}[float=htbp, caption={Polymorphic Environment Reference}, label={lst:poly-env-ref-b}]
-type T = (C | ReadonlyNothing) & M   // for arbitary mutability type M
-var c: T
-new c.D[(T & ReadonlyNothing) | MutableAny](c)
-class C {
-	class D[EnvRef >: MutableAny](_enclosing: (C | ReadonlyNothing) & EnvRef) {
-		var f: (T | ReadonlyNothing) & EnvRef = ...
-	}
-}
-\end{lstlisting}
-
-
-\subsection{Viewpoint Adaptation and Environment Access}
-
-
-
-
 \begin{comment}
+
+\subsection{Viewpoint Adaptation of Environment References in Practice}
+
+% locals as fields (examples)
+% super
+
+\subsection{Inheritance and Environment References in Practice}
+
+% Base classes must have envrionment-reference mutabilities that are compatible with the derived class's env-ref mutability.
+
+The mutabilities of 
+
+If a base class definition is reachable from the derived class,
+
+The addition of mutability permissions to types means that 
+
+The types of environment references are not computed during the typer phase of the compiler. 
+
+\subsection{}
+
+% packages as outer classes
+% accessor methods and overriding
+
+
+
 
 
 Some translation is performed on constructor calls to handle synthetic outer references, and this translation is related to path-dependent types. In Dotty, types are {\em path-dependent}. The class name {\cd D} by itself is not a type; where~{\cd D} is used without a prefix path, an appropriate prefix path is assumed. (typically \mbox{\cd C.this}, where~{\cd C} is )
