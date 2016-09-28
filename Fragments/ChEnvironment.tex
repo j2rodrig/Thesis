@@ -42,12 +42,12 @@ class C {
 }
 \end{lstlisting}
 
-Adding an explicit {\cd this} reference, the definition and call of~{\cd m} are as shown in listing~\ref{lst:meth-2}. The type of {\cd this} in~{\cd m} is~{\cd C}, and \mbox{{\cd C}'s} {\cd this} is passed explicitly in the call to~{\cd m}. Also shown is an explicit declaration of {\cd this} as a self reference to the current object of class~{\cd C}.\footnote{Using {\cdf this} as the name of a self reference or a method parameter is not allowed in Dotty. The code in listing~\ref{lst:meth-2} is for explanatory purposes, and won't compile as-is.}
+Adding an explicit {\cd this} reference, the definition and call of~{\cd m} are as shown in listing~\ref{lst:meth-2}. The type of {\cd this} in~{\cd m} is~{\cd C}, and \mbox{{\cd C}'s} {\cd this} is passed explicitly in the call to~{\cd m}.
+%Also shown is an explicit declaration of {\cd this} as a self reference to the current object of class~{\cd C}.
+\footnote{Using {\cdf this} as the name of a method parameter is not allowed in Dotty. The code in listing~\ref{lst:meth-2} is for explanatory purposes, and won't compile as-is.}
 
 \begin{lstlisting}[float=htbp, caption={Method Transformation 2 (Explicit This)}, label={lst:meth-2}]
 class C {
-	this =>
-
 	def m(this: C, (*\ovr{x}*): (*\ovr{S}*)): T = {  // explicit ``this'' parameter
 		var (*\ovr{y}*) = (*\ovr{e}*)
 		e
@@ -65,13 +65,11 @@ The result of~{\cd m} is stored in the field {\cd \und result}.
 
 \begin{lstlisting}[float=htbp, caption={Method Transformation 3 (Closure)}, label={lst:meth-3}]
 class C {
-	this =>
-
 	class _M(_this: C, (*\ovr{\und x}*): (*\ovr{S}*)) {  // method parameters become class parameters
-		var _outer = _this         // outer reference stored as field
-		var (*\ovr{x}*) = (*\ovr{\und x}*)                 // parameters stored as fields
+		val _outer = _this         // outer reference stored as field
+		val (*\ovr{x}*) = (*\ovr{\und x}*)                 // parameters stored as fields
 		var (*\ovr{y}*) = (*\ovr{e}*)                  // local variables stored as fields
-		var _result: T = e         // result is stored for post-construction retrieval
+		val _result: T = e         // result is stored for post-construction retrieval
 	}
 
 	var y = (new _M(this, (*\ovr{e}*)))._result  // method call becomes constructor call
@@ -105,7 +103,7 @@ Access to instances of outer classes is mediated by fields containing references
 \begin{lstlisting}[float=htbp, caption={``This'' to Outer-Accessor Path Translation}, label={lst:this-outer-accessor}]
 class C {
 	class D(_enclosing: C) {
-		var _outer = _enclosing
+		val _outer = _enclosing
 
 		def m(_this: D) = {
 			_this         // D.this
@@ -125,7 +123,7 @@ class C {
 	}
 	// The following is equivalent to new D().
 	// D is reached through path C.this.
-	var _enclosing = C.this
+	val _enclosing = C.this
 	new _enclosing.D(_enclosing)
 }
 \end{lstlisting}
@@ -148,10 +146,10 @@ Listing~\ref{lst:single-base-env-ref} shows a class~{\cd D} that inherits from a
 \begin{lstlisting}[float=htbp, caption={Single Base Class with Environment Reference}, label={lst:single-base-env-ref}]
 class Env {
 	class C(_enclosing: Env) {
-		var _outer_C = _enclosing
+		val _outer_C = _enclosing
 	}
 	class D(_enclosing: Env) extends _enclosing.C(_enclosing) {
-		var _outer_D = _enclosing
+		val _outer_D = _enclosing
 	}
 }
 \end{lstlisting}
@@ -162,14 +160,14 @@ Listing~\ref{lst:base-class-trait-env-ref} shows a class~{\cd D} that inherits f
 \begin{lstlisting}[float=htbp, caption={Base Class and Trait with Environment References}, label={lst:base-class-trait-env-ref}]
 class Env {
 	trait L {
-		var _outer_L: Env
+		val _outer_L: Env
 	}
 	class C(_enclosing: Env) {
-		var _outer_C = _enclosing
+		val _outer_C = _enclosing
 	}
 	class D(_enclosing: Env) extends _enclosing.C(_enclosing) with _enclosing.L {
-		var _outer_L = _enclosing
-		var _outer_D = _enclosing
+		val _outer_L = _enclosing
+		val _outer_D = _enclosing
 	}
 }
 \end{lstlisting}
@@ -185,10 +183,10 @@ class Env {
 	class D(_enclosing: M & ReadonlyNothing | Env)
 		extends x1.L1 with x2.L2 ... with xn.Ln
 	{
-		var _outer_L1 = x1
+		val _outer_L1 = x1
 		...
-		var _outer_Ln = xn
-		var _outer_D = _enclosing
+		val _outer_Ln = xn
+		val _outer_D = _enclosing
 	}
 }
 \end{lstlisting}
@@ -196,6 +194,7 @@ class Env {
 In listing~\ref{lst:base-traits-env-ref}, \mbox{{\cd D}'s} {\cd \und enclosing} parameter has a type with mutability~{\cd M}.
 Each path {\cd x1} ... {\cd xn} is rooted at {\cd Env.this}, which is equivalent to {\cd \und enclosing} (as seen from within the definition of {\cd D}).
 Viewpoint adaptation must be performed along each path {\cd xi}, and the resulting type must be compatible with the type of the corresponding environment reference {\cd\und outer\und Li}.
+
 
 
 \subsection{Polymorphic Environment References}
@@ -207,20 +206,27 @@ Viewpoint adaptation must be performed along each path {\cd xi}, and the resulti
 %	y = m(...)   // constraint: M <: A
 %
 
-% For the below, the "result" field f has type U | M & ReadonlyNothing, yielding the constraint (although not solvable as-is):
+% For the below, the "result" field x has type U | M & ReadonlyNothing, yielding the constraint (although not solvable as-is):
 %	U | EnvRef & ReadonlyNothing <: A
 
-Listing~\ref{lst:poly-env-ref} shows a class~{\cd D} with a type parameter {\cd EnvRef}. The type {\cd EnvRef} is abstract, with a lower bound of (mutable) {\cd C} and an upper bound of readonly~{\cd C}. The instantiation of class~{\cd D} in figure~\ref{lst:poly-env-ref} involves setting {\cd EnvRef} to the type of the reference used to reach~{\cd D}.
+% Reasoning about envrionment-reference bounds:
+% If no bounds are declared, then bounds are maximal and overriding of definitions becomes a non-issue. The construction EnvRef & ReadonlyNothing | C means that any type can be substituted for EnvRef, and the type remains valid.
+
+Listing~\ref{lst:poly-env-ref} shows a class~{\cd D} with a type parameter {\cd EnvRef}. The type {\cd EnvRef} is abstract, with a lower bound of {\cd Nothing} and an upper bound of (readonly)~{\cd Any}.
+The type of the parameter {\cd \und enclosing} and the type of field~{\cd x} are both viewpoint-adapted with {\cd EnvRef}. The viewpoint adaptation allows field~{\cd x} to flexibly store the result of a read from the enclosing environment; the type of {\cd x} is mutable where the environment is mutable, and readonly where the environment is readonly.
 
 \begin{lstlisting}[float=htbp, caption={Polymorphic Environment Reference}, label={lst:poly-env-ref}]
 class C {
-	class D[EnvRef >: C <: C | ReadonlyNothing](_enclosing: EnvRef) {
-		var f: EnvRef & ReadonlyNothing | U = ...
+	class D[EnvRef](_enclosing: EnvRef & ReadonlyNothing | C) {
+		val x: EnvRef & ReadonlyNothing | T = ...  // T is an arbitrary type
 	}
 }
 \end{lstlisting}
+% 
 
-Type {\cd EnvRef} can be used within~{\cd D} to support typing of arbitrary viewpoint adaptations. The field~{\cd f} in figure~\ref{lst:poly-env-ref} has a type {\cd U} that is viewpoint-adapted with the prefix type {\cd EnvRef}. The viewpoint adaptation with {\cd EnvRef} allows field~{\cd f} to store the result of a read from the enclosing environment.
+The instantiation of {\cd D} involves setting {\cd EnvRef} to the type of the reference used to reach~{\cd D}.
+
+% Type {\cd EnvRef} can be used within~{\cd D} to support typing of arbitrary viewpoint adaptations. The field~{\cd f} in figure~\ref{lst:poly-env-ref} has a type {\cd U} that is viewpoint-adapted with the prefix type {\cd EnvRef}. The viewpoint adaptation with {\cd EnvRef} allows field~{\cd f} to store the result of a read from the enclosing environment.
 
 The transformation of polymorphic method definitions into class definitions (sec.~\ref{sec:methdefs-as-classdefs}) may result in a class definition like that shown in listing~\ref{lst:poly-env-ref}. Under such a transformation, the result of the method is stored as a field, so it is important that fields be able to store viewpoint-adapted results.
 
@@ -239,7 +245,9 @@ Listing~\ref{lst:poly-meth-2} adds an explicit receiver parameter {\cd this}. In
 
 \begin{lstlisting}[float=htbp, caption={Polymorphic Method Transformation 2 (Explicit This)}, label={lst:poly-meth-2}]
 class C {
-	def m[EnvRef >: C <: C | ReadonlyNothing, (*\ovr{R}*) >: (*\ovr{L}*) <: (*\ovr{U}*)](this: EnvRef, (*\ovr{x}*): (*\ovr{S}*)): T = {
+	def m[EnvRef >: Nothing <: Any, (*\ovr{R}*) >: (*\ovr{L}*) <: (*\ovr{U}*)](
+		this: EnvRef & ReadonlyNothing | C, (*\ovr{x}*): (*\ovr{S}*)): T =
+	{
 		var (*\ovr{y}*) = (*\ovr{e}*)
 		e
 	}
@@ -250,17 +258,98 @@ Listing~\ref{lst:poly-meth-3} converts the method definition~{\cd m} into the cl
 
 \begin{lstlisting}[float=htbp, caption={Polymorphic Method Transformation 3 (Closure)}, label={lst:poly-meth-3}]
 class C {
-	class _M[EnvRef >: C <: C | ReadonlyNothing, (*\ovr{R}*) >: (*\ovr{L}*) <: (*\ovr{U}*)](_this: EnvRef, (*\ovr{\und x}*): (*\ovr{S}*)) {
-		var _outer = _this         // outer reference stored as field
-		var (*\ovr{x}*) = (*\ovr{\und x}*)                 // parameters stored as fields
+	class _M[EnvRef >: Nothing <: Any, (*\ovr{R}*) >: (*\ovr{L}*) <: (*\ovr{U}*)](
+		_this: EnvRef & ReadonlyNothing | C, (*\ovr{\und x}*): (*\ovr{S}*))
+	{
+		val _outer = _this         // outer reference stored as field
+		val (*\ovr{x}*) = (*\ovr{\und x}*)                 // parameters stored as fields
 		var (*\ovr{y}*) = (*\ovr{e}*)                  // local variables stored as fields
-		var _result: T = e         // result is stored for post-construction retrieval
+		val _result: T = e         // result is stored for post-construction retrieval
 	}
 }
 \end{lstlisting}
 
 
+
+\subsection{Practical Viewpoint Adaptation and Environment References}
+
+% show how adaptation of vars/fields/this reduces to a simple scope-stepping problem.
+
+\subsection{Covariance of Environment-Reference Type Parameters}
+
+Environment-reference type parameters may be covariant.
+Covariance allows (for example) a class~{\cd D} with a mutable environment reference to be a subtype of~{\cd D} with a readonly environment reference.
+
+\begin{figure}[htbp]
+\begin{lstlisting}
+Given:
+------
+class D[+EnvRef](_enclosing: EnvRef & ReadonlyNothing | C) { ... }
+
+We have:
+--------
+D[MutableAny]  <:  D[M]  <:  D[Any]
+
+(*(For arbitrary mutability type M. Path to D omitted.)*)
+\end{lstlisting}
+\caption{Covariant Environment-Reference Type Example}
+\label{fig:cov-env-ref}
+\end{figure}
+
+Covariance of environment-reference types prevents those types from being used in contravariant positions.
+Contravariant positions include method parameter types and assignable ({\cd var}) field types.
+% Logically, preventing use in contravariant positions is reasonable because environment references 
+
+TODO: Determine if preventing EnvRef use in assignable vars is a practical problem or not.
+
+Note: The EnvRef param of a method is invariant (so is not subject to variance restrictions). Methods cannot inherit like classes, so any variance issues occur only where the original definition was a class.
+Note 2: Furthermore, traits do not take type parameters, and arbitrary type members are always invariant. Variance issues belong only to classes, and (realistically) only to assignable fields of classes.
+
+Method results, non-assignable ({\cd val}) field types, and constructor parameters may use environment-reference types.
+
+
+% \subsection{Package Hierarchies and Environment References}
+
 \begin{comment}
+
+\subsection{Viewpoint Adaptation of Parameterless Methods}
+
+% Problem: Fields are viewpoint-adapted. What needs to be done with overriding parameterless methods?
+
+% Q: In general, is there a problem with overriding class definitions with environment-reference type parameters? A: Yes, if their lower bounds are not in the range MutableAny ... Any. The previous solution of (e.g.) C .. C | ReadonlyNothing would cause problems if the envref C is different between overriding and overriden classes.
+
+Dotty allows field definitions to override 
+
+\begin{lstlisting}[float=htbp, caption={Field Definition Overriding Parameterless Method Definition}, label={lst:field-overriding-method}]
+class Env {
+	class C {
+		def x: T = ...
+	}
+	class D extends C {
+		override val x: T = ...
+	}
+}
+\end{lstlisting}
+
+\begin{lstlisting}[float=htbp, caption={Synthetic Accessor Overriding Parameterless Method Definition}, label={lst:synthetic-accessor-overriding-method}]
+class Env {
+	class C {
+		def x[EnvRef_x](this: C): EnvRef_x & ReadonlyNothing | T = ...
+	}
+	class D extends C {
+		private val _x: T = ...
+		override def x[EnvRef_x](this: EnvRef_x & ReadonlyNothing | D)
+			: EnvRef_x & ReadonlyNothing | T =
+		{
+			this._x
+		}
+	}
+}
+\end{lstlisting}
+
+% override contravariance of this: C <: EnvRef_x .. OK
+% override covariance of result: EnvRef_x & ReadonlyNothing | T <: T .. Not OK
+
 
 \subsection{Viewpoint Adaptation of Environment References in Practice}
 

@@ -1,0 +1,115 @@
+\section{Other Language-Level Concerns}
+
+\subsection{Synthetic Accessor Methods}
+
+% If I allow breaking of backward compatibility, what am I allowed to do? A: Anything!
+
+Dotty allows field definitions to override parameterless-method definitions, and vice versa.
+To check the validity of these overrides, Dotty generates up to two synthetic accessor methods per field: a getter and a setter.
+To illustrate, see listing~\ref{lst:accessor-methods}, which shows the decomposition of a public field definition into a private field with getters and setters.
+
+\begin{lstlisting}[float=htbp, caption={Accessor Methods}, label={lst:accessor-methods}]
+class C {
+	var x: T = ...
+}
+// is equivalent to:
+class C {
+	private var _x: T = ...
+	def x: T = { this._x }                 // getter accessor method
+	def x_=(y: T): Unit = { this._x = y }  // setter accessor method
+}
+\end{lstlisting}
+
+The getter accessor is generated for all fields. The setter accessor is generated only for assignable ({\cd var}) fields.
+
+Listing~\ref{lst:accessor-methods-explicit-this} shows the accessor methods with the appropriate environment references. The getter method, due to the necessity of viewpoint adaptation, is polymorphic. The setter method remains monomorphic.
+
+\begin{lstlisting}[float=htbp, caption={Accessor Methods (Explicit This)}, label={lst:accessor-methods-explicit-this}]
+class C {
+	private var _x: T = ...
+
+	def x[EnvRef](this: EnvRef & ReadonlyNothing | C)
+		: EnvRef & ReadonlyNothing | T = { this._x }   // getter accessor method
+
+	def x_=(this: C, y: T): Unit = { this._x = y }   // setter accessor method
+}
+\end{lstlisting}
+
+% getter method result-type == field VP adaptation?
+Calling the getter method \mbox{\cd def x} produces a result type identical to reading the field \mbox{\cd var x}.
+Given a reference~{\cd c} of type~{\cd C}, the path \mbox{\cd c.x} where {\cd x} is a getter method causes the substitution of {\cd C} for {\cd EnvRef}, producing the result type
+{\cd C \& ReadonlyNothing | T},
+which is identical to the viewpoint adaptated type of field~{\cd x} with prefix~{\cd c}.
+
+\subsubsection{Default Polymorphism of Parameterless Methods}
+
+% impossibility of allowing overrides without adding EnvRef to parameterless methods.
+%  possibility of making parameterless methods getters by default?
+One difficulty with the polymorphism of getter methods is that they cannot override monomorphic methods. And furthermore, the viewpoint-adapted result of the getter method (i.e., {\cd EnvRef \& ReadonlyNothing | T}) is generally incompatible with the unadapted result~{\cd T}. The difficulty is that the overriding of monomorphic methods by synthetic getters is a very common code pattern in Dotty (see example in listing~\ref{lst:getter-override}). The pattern is used extensively in the standard library.
+
+\begin{lstlisting}[float=htbp, caption={Getter Override}, label={lst:getter-override}]
+trait L {
+	def x: T                 // monomorphic parameterless method
+}
+class D extends L {
+	override val x: T = ...  // synthetic getter method overrides x in L
+}
+\end{lstlisting}
+
+One solution is to assume that all parameterless methods are polymorphic getters (like the getter method shown in listing~\ref{lst:accessor-methods-explicit-this}). Viewpoint adaptation is done on parameterless method calls as well as field reads. The advantage of this solution is that parameterless methods and fields may mutually override each other without needing to be annotated.
+
+It is not necessary to have the compiler literally insert type parameters for otherwise parameterless methods, but certain checks must be done to ensure correctness.
+
+% Q: How do we prevent getter methods from mutating their environments? A: We don't. We allow the programmer to mutate the environment if they want to, but prevent them in cases where the parameterless method is annotated. It is up to us to check compatibility of the receiver type; we just won't check the receiver type for calls of ExprTypes.
+% On receiver type checking: The declared environment type is one of: @readonly, polyread, or none/mutable. The only case we really have to check for is where a non-mutable reference is being passed to a mutable environment type.
+
+\subsection{Packages and Modules as Environments}
+
+
+
+
+\begin{comment}
+
+
+Since field reads are viewpoint-adapted, it seemed that something should be said about the relationship between fields and parameterless methods.
+
+Field definitions overriding parmaterless-method definitions is particularly common. See listing~\ref{}, which shows a field in class~{\cd D} that overrides a parameterless method in class~{\cd D}.
+
+\begin{lstlisting}
+class Env {
+	class C {
+		def x: T = ...
+	}
+	class D extends C {
+		override val x: T = ...
+	}
+}
+\end{lstlisting}
+
+\begin{lstlisting}
+class Env {
+	class C {
+		def x: T = ...
+	}
+	class D extends C {
+		override val x: T = ...
+	}
+}
+\end{lstlisting}
+
+\end{comment}
+
+% Applications of parameterless methods (ExprType) are viewpointed-adapted like fields.
+% Important because: Field definitions often override parameterless methods.
+
+%Dotty allows parameterless methods.
+%Parameterless methods are distinct from methods with empty parameter lists: the former can override (and be overridden by) fields of the same name.
+
+
+
+% need to determine defaults for:
+% - getter environment reference (distinction: when no body is specified (e.g., getter in trait) vs. specified (e.g., getter in class))?
+% - getter result: see above (results are viewpoint adapted)
+
+% experiment: 
+

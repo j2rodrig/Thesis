@@ -1,0 +1,576 @@
+\documentclass[11pt]{report}
+
+\usepackage{fullpage}
+
+\usepackage{booktabs}
+
+\usepackage{amsmath,amssymb,amstext} % Lots of math symbols and environments
+\usepackage[pdftex]{graphicx} % For including graphics N.B. pdftex graphics driver 
+
+%custom packages
+\usepackage{cancel}
+\usepackage{comment}
+\usepackage{courier}
+\usepackage{fixltx2e}  % for subscript text in sections/bookmarks
+\usepackage{listings}
+%\usepackage[12pt]{moresize}
+\usepackage{multirow}
+%\usepackage{ulem}
+\usepackage{url}
+\usepackage[utf8]{inputenc}
+\usepackage[usenames,dvipsnames,svgnames,table]{xcolor}
+
+% Code Styles
+\newcommand{\und}{\char`_}
+\newcommand{\MUTABILITY}{\und\und MUTABILITY\und\und }
+\newcommand{\PREFIXMUTABILITY}{\und\und PREFIX\und MUTABILITY\und\und }
+\newcommand{\cdf}{\bf\ttfamily} % code font and family
+\newcommand{\cde}{\cdf\footnotesize}  % basic listing style
+\newcommand{\cd}{\cdf\small}  % basic inline-code style
+\lstdefinelanguage{ScalaExamples}{
+	morekeywords={
+		def,var,val,type,object,package,class,abstract,trait,extends,with,
+		match,case,
+		import,
+		this,super,override,
+		private,protected,public,
+		final,sealed,null,new,
+		for,do,while,until,yield,return},
+	sensitive=true,
+	morecomment=[l]{//},
+	morecomment=[s]{/*}{*/},
+	morestring=[b]"
+}
+\lstset{
+	language={ScalaExamples},
+	basicstyle=\cde,
+	tabsize=2,
+	keywordstyle=\cde\color{Blue},
+	identifierstyle=\cde,
+	commentstyle=\bf\scriptsize\color{gray},
+	%xleftmargin=\parindent,
+	extendedchars=true,
+	breaklines=true,
+	captionpos=b,
+	frame=b,
+	float=htp,
+	emph={
+		mutable,readonly,mutabilityOf,mutabilityOfRef,polyread,
+		@mutable,@readonly,@mutabilityOf,@mutabilityOfRef,@polyread
+		},
+	emphstyle={\cde\color{OliveGreen}},
+	moredelim=**[is][\cde\color{OliveGreen}]{@*}{*@},
+	escapeinside={(*}{*)}
+}
+
+% Overline
+% Credit: http://tex.stackexchange.com/questions/24132/overline-outside-of-math-mode
+\makeatletter
+\newcommand*{\ovr}[1]{$\overline{\hbox{#1}}\m@th$}
+\makeatother
+
+\begin{document}
+
+
+
+\title{DotMod: Reference Immutability and Purity in the Scala Language}
+\author{Jonathan Rodriguez\\University of Waterloo}
+\maketitle
+
+\begin{comment}
+\chapter{Introduction}
+
+\chapter{Introduction to Reference Immutability}
+
+Reference immutability is a mechanism for helping prevent unintentional modification of shared-memory state in object-oriented programs.
+
+The C++ language included the {\cd const} keyword, which served as in-code documentation that certain objects and fields would not be modified. The {\cd const}-correctness of programs is checked by standards-compliant C++ compilers, which issue errors where {\cd const} state is mutated or where {\cd const} is dropped without an explicit casting operation.
+
+Java has no exact equivalent of {\cd const}. Fields and objects in Java may be declared {\cd final}, which serves one of the purposes of {\cd const} in C++. However, {\cd const} in C++ may be used in a different sense: in C++, it is possible to declare that a pointer or reference refers to a {\cd const} object. The result of following such a pointer or reference is an object that should be treated as if it was declared {\cd const}.
+
+A related problem in standard Java is that there is no built-in language mechanism for differentiating between owned objects and non-owned objects. An ownership relationship expresses that one object is ``part of'' another object, a relationship that C++ is able to express directly through the mechanism of type composition.  Ownership expresses a has-a relationship, and C++ is able to express ownership through type composition, where one object is quite literally part of another object. A {\cd const} object in C++ 
+\end{comment}
+
+\begin{comment}
+One major question I pursued in the present work was how best to encode mutability information into the Dotty type system. Rather than encoding mutability information as a type system separate from the host language's type system, I thought it important to look for an integrated approach that (where possible) relies on the host language's type system to perform some of the ``heavy lifiting.'' 
+
+Much previous work on reference immutability and side effects has entailed the development of new reference-immutability-specific or effect-encoding type systems. For example, Reim~\cite{} introduces a system of type qualifiers that are orthogonal to Java types, and Rytz's work on effect systems for Scala~\cite{} involves intraprocedural analysis and typing rules that are essentially independent of Scala's type system.
+
+However, there is a problem with the creation of type systems orthogonal to the host language's type system: as the complexity of the host language and the new type system increases, there is a very real risk of substantial duplication of development effort. The Scala language, DOT type system, and Dotty compiler support a degree of modularity, flexibility, and practicality that is unprecedented among statically-typed languages, but at the cost of a very long and difficult development process. For a new type system to approach the complexity ...
+
+% previous encoding mechanisms: annotated types; intersection/union types; shadow members. Story of why these were inferior solutions.
+\end{comment}
+
+
+
+
+\chapter{Compiler Background}
+
+The Dotty type system can be confusing, particularly to beginners.
+There is currently little to no documentation about many parts of the compiler,
+so here I will highlight some of the ideas and implementation details of Dotty
+that are relevant to the present work.
+
+First, I will discuss certain elements of the type system.
+Dotty (roughly) divides types into two categories: type types and term types.
+Key type types and term types are discussed in sections~\ref{sec:type-types} through \ref{sec:term-types}.
+
+
+This chapter contains the following sections:
+\begin{itemize}
+\item Section~\ref{sec:type-types}: Dotty Type Types. These are the types that a type can have. They include classes, type bounds, and type aliases.
+\item Section~\ref{sec:value-types}: Dotty Value Types. These are the types that an object or primitive value can have. They include type references, term references, intersection types, union types, and others.
+\item Section~\ref{}:
+\end{itemize}
+
+
+\section{Dotty Type Types} \label{sec:type-types}
+
+Type types are the types that a type symbol can have. Every type name is associated with a type type. Whenever a type name is looked up, the result is a type type.
+There are only three basic types of type types: classes, type bounds, and type aliases.
+These are discussed in the following subsections.
+
+\subsection{Classes (class ClassInfo)}
+
+Every class has a name, a set of members, a list of parent types, and a prefix type. Parent types are arbitrary types, which is a generalization of the inheritance rules for Java, which only allows a maximum of one non-interface base class.
+
+The prefix type is the ThisType of the class' owner. Nested classes are ``owned'' by their enclosing classes, and non-nested classes are owned by the packages that contain them. Two classes are considered equivalent only if their prefix types are identical. If the class is accessed from a different prefix type, the new prefix must be substituted for the class' original prefix type. The prefix type being a term type is a departure from Java, which does not distinguish among classes accessed from different instances of their owning objects. Making distinctions among types based on term prefixes is one of the essential features of path-dependent typing.
+
+The word ``class,'' as used in the Dotty compiler, can mean a concrete class, an abstract class, or a trait/mixin.
+
+\subsubsection{Special Classes: Any, AnyVal, Null, and Nothing}
+
+The classes {\cd Any}, {\cd AnyVal}, {\cd Null}, and {\cd Nothing} are handled specially in many parts of the compiler. They are all owned by the {\cd scala} package, and they are created at compile-time rather than loaded from a class file.
+
+\begin{itemize}
+
+\item {\cd Any} is a supertype of all other types and {\cd Nothing} is a subtype of all other types. The only base class given for {\cd Nothing} is {\cd Any}, but type comparison operations treat {\cd Nothing} as a special case so that it appears compatible with all other types.
+
+\item {\cd AnyVal} is a supertype of all primitive value types.
+
+\item {\cd Null} is the type of the {\cd null} reference, and it is a subclass of {\cd java.lang.Object}.
+
+\end{itemize}
+
+\subsection{Type Bounds (classes TypeBounds and RealTypeBounds)}
+
+Objects may contain abstract type members.
+The type of an abstract type member is always a TypeBounds, which contains two other types: a lower bound and an upper bound. The lower-bound type and upper-bound type are always term types.
+
+Syntactically, the notation {\cd type T >:U <:V} means that {\cd T} is an abstract type member with a lower bound of {\cd U} and an upper bound of {\cd V}. If {\cd U} is omitted in practice, the lower bound is defaulted to {\cd Nothing}. If {\cd V} is omitted in practice, the upper bound is defaulted to {\cd Any}.
+
+A TypeBounds is compatible with a second TypeBounds if it ``fits inside'' the second TypeBounds. That is, the first TypeBounds is compatible with the second if the second's lower bound is compatible with the first's lower bound, and the first's upper bound is compatible with the second's upper bound. A ClassInfo ``fits inside'' a TypeBounds if the TermRef formed by the class' prefix and name is compatible with the TypeBounds' upper bound, and not incompatible with the TypeBounds' lower bound.
+
+An object may contain more than one definition of an abstract type member. Where there is more than one definition of the same type member, the TypeBounds of all definitions are intersected. The intersected TypeBounds has an upper bound that is the intersection of the upper bounds of all definitions, and the lower bound is the union of the lower bounds of all definitions. (The type-intersection operation is denoted by `{\cd \&}' and the type-union operation is denoted by `{\cd |}' -- see sections~\ref{sec:type-intersection} and \ref{sec:type-union}.)
+
+For example, the doubly-refined type:
+\begin{center}
+	{\cd AnyRef \{ type T >:U <:V \} \{ type T >:W <:X \}}
+\end{center}
+contains two abstract defintitions of type member {\cd T}. It is equivalent to the following:
+\begin{center}
+	{\cd AnyRef \{ type T >:U|W <:V\&X \}}
+\end{center}
+The bounds of {\cd T} are considered ``good'' if {\cd U|W} is a subtype of {\cd V\&X}.
+A type with bad bounds cannot be instantiated.
+
+\subsection{Type Aliases (class TypeAlias)}  \label{sec:type-aliases}
+
+Objects may contain type members that are instantiated by {\em type assignments}.
+The type of an instantiated type member is always a TypeAlias.
+
+Syntactically, the notation \mbox{{\cd type T = U}} means that {\cd T} is a type member that is equivalent to {\cd U}. The type {\cd U} must be contained inside any abstract type bounds declared for {\cd T}.
+
+The notation \mbox{{\cd type T = U}} does {\em not} have the same meaning as \mbox{{\cd type T >:U <:U}}; the former is a type assignment, the latter is an abstract type definition. Type assignments override previous assignments to the same type name, so that it is legal for successive type refinements to assign different types to the same type member. For example, the doubly-refined type:
+\begin{center}
+	{\cd AnyRef \{ type T = U \} \{ type T = V \}}
+\end{center}
+assigns the type {\cd V} to {\cd T}. The earlier assignment to {\cd U} is overridden.
+
+In contrast, the following doubly-refined type:
+\begin{center}
+	{\cd AnyRef \{ type T >:U <:U \} \{ type T >:V <:V \}}
+\end{center}
+is illegal unless {\cd V} is equivalent to {\cd U}. Abstract type definitions are order-independent, so the type above is actually equivalent to:
+\begin{center}
+	{\cd AnyRef \{ type T >:U|V <:U\&V \}}
+\end{center}
+which gives {\cd T} bad bounds unless {\cd V} is equivalent to {\cd U}.
+
+The TypeAlias class is a subclass of the TypeBounds class, but although type aliases and type bounds share some common functionality, a type alias is not a type bounds. The distinction is that a type alias is the type of a type assignment, but a type bounds is the type of an abstract type definition. A type bounds that is ``really'' a type bounds is actually an instance of class RealTypeBounds.
+
+\subsubsection{Special Type Aliases: AnyRef}
+
+{\cd AnyRef} is a type alias of {\cd java.lang.Object}. Its owner is the {\cd scala} package, and it is created at compile-time rather than loaded from a class file. As an alias of {\cd Object}, it is a supertype of all reference types.
+
+
+\section{Dotty Value Types} \label{sec:value-types}
+
+Value types can be the types of values (``values'' includes both objects and primitive values).
+
+\subsection{Type References (class TypeRef)}
+
+A type reference refers to a type by name.
+A TypeRef is uniquely defined by type name and a prefix type, and is produced by a type member selection or named class selection.
+
+The type of a value is never just a class. A class name without an explicit prefix in the source code is implicitly given a prefix, producing a TypeRef whose denotation type is a ClassInfo. Such a TypeRef is has the same name and prefix type as the ClassInfo.
+
+The prefix type of a TypeRef is either a value type or NoPrefix. Common prefix types include:
+\begin{itemize}
+\item {\bf ThisType.} A TypeRef with a ThisType prefix is a selection of a named type member (or class) from the current receiver object (or the receiver of some lexically enclosing method).
+\item {\bf TermRef.} A TypeRef with a TermRef prefix is a path-dependent type selection. Path-dependent type selections are expressed syntactically by the dot ({\cd .}) operator.
+\item {\bf TypeRef.} A TypeRef with a TypeRef prefix is a path-independent type selection. Path-independent type selections are expressed syntactically by the hash ({\cd \#}) operator.
+\item {\bf NoPrefix.} A TypeRef with NoPrefix is generated if the TypeRef refers to a package class.
+\end{itemize}
+
+\subsection{Term References (class TermRef)}
+
+A term reference refers to a term by name.
+A TermRef is uniquely defined by a term name and a prefix type, and is the type of a field selection, method selection, or variable.
+
+The prefix type of a TermRef is either a value type or NoPrefix. Common prefix types include:
+\begin{itemize}
+\item {\bf ThisType.} A TermRef with a ThisType prefix is a selection of a field or method of the current receiver (or the receiver of some lexically enclosing method).
+\item {\bf TermRef.} A TermRef with a TermRef prefix is a path-dependent field or method selection. Path-dependent term selections are expressed syntactically by the dot ({\cd .}) operator.
+\item {\bf TypeRef.} A TermRef with a TypeRef prefix is a path-independent field or method selection. Path-independent term selections are expressed syntactically by the hash ({\cd \#}) operator.
+\item {\bf NoPrefix.} A TermRef with NoPrefix is generated if the TermRef refers to a variable.
+\end{itemize}
+
+\subsubsection{TermRefs are Singleton Types}
+
+A TermRef is also a singleton type. A singleton type is guaranteed to only have a single non-null value. What this means in practice is that if two singleton types are equivalent, they represent {\em the same reference}. The same-reference property is important in path-dependent type comparisons: Two type member selections are guaranteed to be equivalent only if their names are equivalent {\em and} they are selected from the same object.
+
+\subsection{Receiver Types (classes ThisType and SuperType)}
+
+The type of {\cd this} is a ThisType. By itself, {\cd this} refers to the current object of the immediate lexically-enclosing class. It is possible in Scala to nest classes arbitrarily deeply, and so the notation {\cd C.this} exists to refer to the current object of an arbitrary enclosing class~{\cd C}.
+
+ThisTypes may refer to package classes.
+
+ThisTypes are singleton types. Like a TermRef, a ThisType is guaranteed to 
+
+\subsection{Type Intersections (class AndType)} \label{sec:type-intersection}
+
+Type intersection is denoted by the amperstand {\cd \&} operator. (Note that there are two built-in {\cd \&} operators in Dotty -- a bitwise term operator and a type operator. This section is about the type operator.) 
+
+A type intersection represents a type that conforms to both of a pair of types. Type intersections are frequently used to represent trait compositions. Chains of type intersections can be used to represent arbitrary compositions of traits.
+
+Type intersections can sometimes be simplifed. In particular, if one type in the intersection pair is a subtype of the other type in the pair, then the intersection type can be replaced by that subtype. Dotty will frequently simplify type intersections where it can safely do so.
+
+\subsubsection{Type Refinements (class RefinedType)}
+
+Type refinements are structural specializations that add, narrow, or override members of their parent types. Type refinements may be understood as a particular kind of type intersection where the right-hand branch of the intersection defines a named member that should exist in the resulting type. Each RefinedType refines precisely one named member; a refinement that refines more than one member is represented as a nested sequence of RefinedTypes.
+
+A RefinedType is uniquely identified by its parent type, refined-member name, and new refined-member type. If the refined-member name is a type name, then the refined-member type is a TypeBounds. Otherwise, the refined-member name is a term name, and the refined-member type is a term type.
+
+Syntactically, a type refinement is noted by a type followed by a member definition enclosed in curly braces. For example, the following type refinements have parent type {\cd P} and refine a type member and a method member, respectively:
+\begin{center}
+{\cd P \{ type T >:U <:V \}}\\
+{\cd P \{ def m:T \}}
+\end{center}
+These refinements are equivalent to the following structural type intersections:
+\begin{center}
+{\cd P \& \{ type T >:U <:V \}}\\
+{\cd P \& \{ def m:T \}}
+\end{center}
+
+\subsection{Type Unions (class OrType)} \label{sec:type-union}
+
+Type union is denoted by the vertical bar {\cd |} operator. (Note that there are two built-in {\cd |} operators in Dotty -- a bitwise term operator and a type operator. This section is about the type operator.) 
+
+The type union represents a choice between two types. A type union is the natural type of an if-else expression, and the natural type of a {\cd match} expression is a chain of type unions.
+
+Type unions can sometimes be simplified without any loss of precision. Specifically, if one type in the union pair is a supertype the other type in the pair, then the union can be replaced by the supertype without loss of precision. Dotty will frequently simplify type unions where it can safely do so.
+
+\subsubsection{Union Type Approximation}
+
+Type unions are often approximated. Union type approximation occurs wherever the type of a symbol is inferred. Unlike ordinary type simplification, union type approximation involves a loss of precision.
+
+The approximation procedure replaces every chain of type unions with a set of intersected classes/traits. The classes/traits chosen for this intersection are common to all elements of the type union chain. The resulting (union-free) type is therefore a supertype of the natural (unions-included) type.
+
+Union type approximation is necessary for backward compatibility with existing Scala code. The original definition of the Scala language (implemented in the Scalac compiler) did not include union types, so the typing of every conditional expression and match expression necessarily involved an approximation procedure.
+
+Union type approximation is also important to keep inferred types from becoming unwieldy. For example, most programmers would expect the result type of a match expression with a dozen cases to be a single concisely-expressible type, not the union of a dozen more-precise types.
+
+The Dotty compiler includes an experimental option to turn off union approximation. However, using this option breaks some legacy code. There seems to be a possibility for some future research in this area; questions to be answered include:
+\begin{itemize}
+\item When and where it is absolutely necessary to perform union approximation (if anywhere)?
+\item What do we (or should we able to) know about the types that result from union approximation?
+\item What is the precise specification of the union approximation procedure? (Aside from a few in-code comments, I have not been able to find any documented specification of union approximation.)
+\end{itemize}
+
+
+\section{Dotty Non-Value Term Types} \label{sec:nonvalue-term-types}
+
+
+
+\section{Other Types of Dotty Types}
+
+
+
+
+
+
+\chapter{DotMod Basic: Simple Reference Immutability}
+
+% What it does
+% Operational summary: How does it hook into the compiler?
+% More details...
+% Conclusion
+
+{\em DotMod Basic} is an encoding of reference immutability into standard Dotty types.
+DotMod Basic handles basic reference immutability concerns, namely:
+\begin{itemize}
+\item mutability of references;
+\item viewpoint adaptation of fields;
+\item assignability of fields;
+\item mutability of abstract types;
+\item a mechanism for declaring method-receiver mutability; and
+\item checking of mutability-type compatibility.
+\end{itemize}
+
+The present chapter discusses DotMod Basic only. Later chapters discuss mechanisms for handling secondary concerns, which will include:
+\begin{itemize}
+\item assignability of local variables in lexically enclosing scopes;
+\item mutability of local variables in lexically enclosing scopes;
+\item annotations for method purity; and
+\item flexible purity for first-class functions.
+\end{itemize}
+
+DotMod Basic is implemented as an extension of the Dotty compiler. Its major components are the following:
+\begin{itemize}
+\item DotModTyper, an extension of the Dotty Typer;
+\item DotModTypeComparer, an extension of the Dotty TypeComparer; and
+\item DotModRefChecks, an extension of the Dotty RefChecks phase.
+\end{itemize}
+There is more information on the specifics of DotMod's architecture in a later chapter.
+
+The sections in this chapter are the following:
+\begin{itemize}
+\item Section~\ref{sec:annotations-to-refinements}: Type Assignments and Type Refinements. This section discusses the conversion of type annotations to type refinements.
+\item Section~\ref{sec:viewpoint-adaptation}: Viewpoint Adaptation. This section discusses the mechanisms used to perform viewpoint adaptation of field selections.
+%\item Section~\ref{}:
+\end{itemize}
+
+
+
+
+
+\begin{comment} TODO: move to introduction
+The objective of DotMod Basic is to show how mutability information can be integrated into the standard Dotty type system.
+
+The integrated approach is unusual. It is much more common in the side-effect-limitation domain to propose secondary type systems that are entirely orthogonal to the host language's primary type system. Although orthogonality is a nice property, the development and formalization of an entire secondary type system is a substantial amount of work.
+
+The Checker Framework for Java can help reduce the effort required to implement a secondary type system. 
+
+However, there does not seem
+
+% Q: What's the unknown? A: The unknown I'm trying to address here is: What is the contribution of my work to the established body of research? Options for answering: 1. Guess.
+
+% Checker framework? Is there a Checker-like framework for Scala?
+\end{comment}
+
+
+\section{Type Annotations and Type Refinements} \label{sec:annotations-to-refinements}
+%\chapter{Type Refinement as a Mechanism for Encoding Reference Immutability}
+%\section{Translation of Type Annotations to Type Refinements}
+
+During the typing process, DotModTyper performs the following sequence of operations on each abstract syntax tree:
+\begin{enumerate}
+\item Type the tree according to Dotty's default typing logic.
+\item If the tree's type is an AnnotatedType, and the annotation is a recognized reference-immutability annotation, then re-type the tree with a RefinedType. Each of these type refinements refines the member named {\cd \MUTABILITY}.% DotMod reserves the name {\cd \MUTABILITY} for mutability information.
+\item Perform custom checks: If the type is a TypeRef that refers to a method, check receiver compatibility. If the tree is an assignment, check assignability.
+\end{enumerate}
+
+The rationale for representing mutability information as a type member is so that the relationship between mutabilities and types is well-understood by the Dotty compiler. Previous attempts (discussed in a later chapter) represented mutability in ways that were not clearly defined by the compiler (mutability as AnnotatedTypes) or susceptable to elidation during type inference and simplification (mutability as AndTypes and OrTypes).
+
+By representing mutability information as a type member, the mutability of any type can be (logically) determined by simply querying for the meaning of the member name {\cd \MUTABILITY}. Of course, it is not quite this simple in practice~-- the mutabilities of many types are defaulted rather than explicit.
+
+%Early in the typing process, I convert annotated types into type refinements (see section~\ref{sec:type-intersection}). Each of these type refinements contains a type assignment (see section~\ref{sec:type-alises}) that assigns a mutability-related type to the type member named {\cd \MUTABILITY}.
+
+%\subsubsection{Mutability Refinements as Covariant Type Assignments}
+
+The mapping of mutability annotations to type refinements is shown in Table~\ref{table:annotations-to-refinements} %(although the refinements of annotations other than {\cd @mutable} or {\cd @readonly} may be substituted by equivalent types -- see section~\ref{sec:mutability-subst}).
+All mutability refinements generated here are type-member assignments (not type declarations). Type assignments have the property that any assignment to a particular type-member name overrides any previous assignment to that name. This overriding behaviour allows the mutability of a type to be set arbitarily, without regard to any prior (underlying) mutability assignments. A more detailed discussion on type assignments and type aliases is in section~\label{sec:type-aliases}.
+
+Mutability member assignments generated by annotation translations are always assigned to type aliases, and are always covariant.
+Covariance allows the expected subtyping relationships: e.g., a type refining {\cd \MUTABILITY} to {\cd mutable} should be a subtype of that same type refining {\cd \MUTABILITY} to {\cd readonly}.
+
+Dotty currently does not offer a programmer-accessible syntax for expressing covariance (or contravariance) of type aliases, so the refinements shown in Table~\ref{table:annotations-to-refinements} are not syntactically valid due to the presence of `{\cd +}'. However, all type aliases (and type bounds) are allowed to have variances inside the compiler, so the refinements shown can be synthetically generated. The notation used in Table~\ref{table:annotations-to-refinements} is similar to the notation used to display these types in error messages.
+
+
+
+\begin{table}[p]
+\center
+\begin{tabular}{ll}
+Annotated Type & Equivalent Refined Type \\
+\hline
+\lstinline!T @mutable! & \lstinline!T { type __MUTABILITY__ = + mutable }! \\
+\lstinline!T @readonly! & \lstinline!T { type __MUTABILITY__ = + readonly }! \\
+\lstinline!T @mutabilityOf[U]! & \lstinline!T { type __MUTABILITY__ = + U#__MUTABILITY__ }! \\
+\lstinline!T @mutabilityOfRef(x)! & \lstinline!T { type __MUTABILITY__ = + x.__MUTABILITY__ }! \\
+\lstinline!T @polyread! & \lstinline!T { type __MUTABILITY__ = + this.__MUTABILITY__ }! \\
+\end{tabular}
+\caption{Refined-Type Equivalents of Annotated Types}
+\label{table:annotations-to-refinements}
+\end{table}
+
+\begin{table}[p]
+\center
+\begin{tabular}{ll}
+Annotation Class & Comment \\
+\hline
+\lstinline!class readonly extends Annotation {}! & \\
+\lstinline!class mutable extends readonly {}! & \lstinline!mutable! is a subtype of \lstinline!readonly!. \\
+\lstinline!class mutabilityOf[T] extends Annotation {}! & Used to get the mutability of a type. \\
+\lstinline!class mutabilityOfRef(ref: Any @readonly)! & Used to get the mutability of a term. \\
+\lstinline!    extends Annotation {}! & \\
+\lstinline!class polyread extends Annotation {}! & Same as \lstinline!mutabilityOfRef(this)!. \\
+\end{tabular}
+\caption{Definitions of Basic Mutability Annotations}
+\label{table:basic-mutability-annotations}
+\end{table}
+
+\begin{table}[p]
+\center
+\begin{tabular}{ll}
+Dotty Type & Description \\
+\hline
+{\bf TypeRef} & A named type selection, but refinable only if not a primitive value type. \\
+{\bf AndType} & A type intersection. \\
+{\bf OrType} & A type union. \\
+{\bf RefinedType} & A type refinement. \\
+{\bf AnnotatedType} & An annotated type, but refinable only if the underlying type is refinable. \\
+{\bf PolyParam} & A type parameter of a polymorphic method or generic class. \\
+{\bf TypeVar} & A type variable. (Represents an inferred type argument.) \\
+{\bf HKApply} & An application of a higher-kinded (generic) type. \\
+{\bf RecType} & A recursively-defined type. \\
+\end{tabular}
+\caption{Types that are Eligible for Mutability Refinement}
+\label{table:can-have-annotations}
+\end{table}
+
+\subsubsection{Mutability Annotations}
+
+Annotations in Dotty are defined as classes. The basic mutability-annotation classes I introduce are shown in Table~\ref{table:basic-mutability-annotations}.
+
+The {\cd mutable} class extends the {\cd readonly} class. Nothing stops annotation classes from being used as any ordinary class would, and I reuse these classes in mutability member refinements to improve the legibility of error messages. Furthermore, by creating a subtype relationship between {\cd mutable} and {\cd readonly}, mutability refinements that refer to these classes can be made to have the correct subtype relationships (without special-casing them in the type comparer).
+
+The {\cd mutabilityOf} annotation class has a single type parameter. The mutability assigned by {\cd mutabilityOf} is the same as the mutability assigned to the given type argument. Similarly, the {\cd mutabilityOfRef} annotation class has a reference parameter. The mutability assigned by {\cd mutabilityOfRef} is the same as the mutability of the given argument.
+
+The {\cd polyread} annotation has the same meaning as {\cd mutabilityOfRef(this)}. I introduce {\cd polyread} for continuity with prior reference-immutability work, in particular ReIm.
+
+All annotation classes I introduce here derive from the {\cd Annotation} class. Dotty allows classes derived from {\cd Annotation} to be used as annotations.
+%All annotations are derived from the standard {\cd Annotation} class; the compiler allows classes derived from {\cd Annotation} to be used as annotations.
+
+
+\subsubsection{Types that are Eligible for Mutability Refinement}
+
+Only certain types are allowed to have mutability annotations or mutability-member refinements. Specifically, only non-singleton, non-primitive value-term types are allowed to have mutability annotations. Eligible types are shown in Table~\ref{table:can-have-annotations}.
+
+Absent from Table~\ref{table:can-have-annotations} are singleton types, which include TermRef, ThisType, MethodParam, and others. A singleton type represents precisely one reference, which has exactly one mutability. Since it does not make sense for a singleton type to have more than one mutability, it does not make sense to allow its mutability to be changed. However, the type that results from widening a singleton type may have its mutability changed (provided the widened type is in Table~\ref{table:can-have-annotations}). Notably, a recent change to the Dotty compiler (as of September 2016) automatically widens annotated singleton types, making the following acceptable:
+\begin{lstlisting}
+  val x: AnyRef = ???
+  val y: x.type @readonly = x  // x.type is automatically widened to AnyRef
+\end{lstlisting}
+As a side note, changing the results of type widenings is the mechanism used to perform viewpoint adaptation of fields (discussed below).
+
+Also absent from Table~\ref{table:can-have-annotations} are method types, which include MethodType, ExprType, and PolyTypes that wrap method types. Methods are not objects in Dotty, so cannot have mutabilities.
+
+
+%\subsubsection{A Conservative Refinement Strategy}
+
+%Mutability refinements are added only where a mutability annotation is present or where the mutability of a type must be changed. All types except Any are assumed to be mutable unless otherwise refined (Any is assumed to be readonly). This refinement strategy allows for minimal disruption to existing code, and also allows for incremental development of the reference-immutability system.
+
+%Support for default mutabilities requires special cases in the type comparer (see section~\ref{}) and the mutability-member lookup code (see section~\ref{}).
+
+
+
+\section{Viewpoint Adaptation} \label{sec:viewpoint-adaptation}
+
+A major feature of reference immutability is the viewpoint adaptation of field reads.
+Conceptually, viewpoint adaptation is not complex:
+Given a path~{\cd p} and a field name~{\cd f}, the mutability of the field selection \mbox{\cd p.f} must be no less permissive than the mutabilities of
+both~{\cd p} and~{\cd f}. For example, if the mutability of either {\cd p} or {\cd f} is {\cd readonly}, then the mutability of \mbox{\cd p.f}
+must be {\cd readonly}; \mbox{\cd p.f} may be {\cd mutable} only if both {\cd p} and {\cd f} are {\cd mutable}.
+
+One of the trickier parts of implementing viewpoint adaptation in Dotty is the difficulty of determining exactly where and how the viewpoint adaptation
+operation should be applied. One approach is to adapt the types of certain kinds of trees. Field selections may be represented by selection (Select) trees and identifier (Ident) trees, but only if they select or identify term names, and only if those terms are bona fide fields (not methods). The information needed is readily available from the type assigned to the tree, but merely knowing the kind of tree is not very useful at all.
+
+So a better approach is to look at the tree's type. If the type is a TermRef, and the TermRef's underlying type is not methodic (MethodType, ExprType, or PolyType), then the tree may need to be re-typed to reflect a viewpoint-adapted type. Going one step further, we know the type is viewpoint-adaptable if the underlying type is in Table~\ref{table:can-have-annotations}. Essentially, any type that can have mutability modified by annotations can have its mutability modified by viewpoint adapatation.
+
+However, there is another problem here -- the type Dotty assigns to a field selection is a singleton type. Singleton types are specifically excluded from Table~\ref{table:can-have-annotations}. Recall that singleton types cannot have their mutabilities modified directly because such a modification would be nonsensical; what would it mean to have a single reference with two different mutabilities? Even if there was a satisfactory answer to this question, there are parts of the Dotty compiler that cannot handle a RefinedType where a TermRef is expected (for example, when finding the receiver reference for a method application).
+
+The solution to the singleton-type viewpoint-adaptation issue involves the type widening process. When a singleton type is widened to a non-singleton type, the widened non-singleton should have the viewpoint-adapted mutability. Logically, it is clear what it means to viewpoint-adapt a field read during widening: instead of returning the field's original declared type, the viewpoint adaptation operation returns a supertype of field's declared type. Another way to understand the viewpoint adaptation operation is to remember that a type represents a selection of a particular set of references from the domain of all possible references. The application of viewpoint adaptation causes the selection to be a superset of what it would have been without viewpoint adaptation. So since a singleton type represents exactly one reference, any viewpoint adaptation (that changes the singleton's mutability) would necessarily involve some kind of widening into a non-singleton type. Furthermore, it is often important to preserve the knowledge that certain trees have singleton types, so modifying the types of these trees directly is a bad idea.
+
+Viewpoint adaptation in DotMod may occur whenever the widening of a TermRef occurs. Widening of terms occurs in many places in Dotty (wherever the underlying type of the TermRef is required); the implemented solution in DotMod is to trigger viewpoint adaptation logic whenever the {\cd info} method of a TermRef is called. Due to viewpoint adaptation, there are two different ways to find the underlying type of a TermRef. The first is to call {\cd info}, which returns the viewpoint-adapted type. The second is to explicitly ask for the TermRef's denotation, then ask for the denotation's type -- that is, to call {\cd denot.info}. In vanilla Dotty, {\cd info} and {\cd denot.info} return the same type. With DotMod enabled, {\cd denot.info} returns the unadapted type, but {\cd info} returns the adapted type. The type widening operations performed by Dotty all appear to call {\cd info}, so performing viewpoint adaptation during the call to {\cd info} seems to be a safe and practial approach. Where viewpoint adaptation is not wanted, the option to call {\cd denot.info} is available.
+
+\subsubsection{Viewpoint Adaptation Procedure}
+
+Listing~\ref{lst:psuedo-viewpoint-adaptation} shows the psuedocode for the viewpoint adaptation of fields.
+
+\begin{lstlisting}[float=htbp, caption={Psuedocode for Viewpoint Adaptation of Fields}, label={lst:psuedo-viewpoint-adaptation}]
+Given a TermRef with prefix type p and denotation d:
+
+1.  If not canHaveAnnotations(d.info) then return d.info
+
+2.  Let preMut = mutabilityOf(p)
+3.  Let tpMut = mutabilityOf(d.info)
+4.  Let finalMut = simplify(preMut | tpMut)
+
+5.  If finalMut eq tpMut then
+6.      Let adapted = d.info
+    else
+7.      Let adapted = d.info { type __MUTABILITY__ = + finalMut }
+
+8.  If preMut is mutable then
+9.      return adapted
+    else
+10.     return adapted { type __PREFIX_MUTABILITY__ = + preMut }
+\end{lstlisting}
+
+Line~1 of listing~\ref{lst:psuedo-viewpoint-adaptation} determines whether the referred-to type is even eligible for viewpoint adaptation.
+The referred-to type is eligible for viewpoint adaptation if that type would be allowed to have mutability annotations.
+
+Lines~2 and~3 find the mutabilities of the prefix type and the referred-to type. The specifics of the mutabilityOf operation are discussed elsewhere; but for now, it is sufficient to assume that mutabilityOf returns the type aliased by the argument's {\cd \MUTABILITY} member.
+
+Line~4 computes a simplified union of the two mutability types. The simplification process is Dotty's standard type simplification process. If the two mutability types have a subtype relationship, only the more general type is returned. If not, then an OrType is produced.
+
+Lines~5 through~7 create the adapted type. Line~5 checks whether the simplified final mutability is identical to the original mutability. If it is, then no adaptation is necessary. If it is not, then a RefinedType is created on line~7. The RefinedType reassigns the {\cd \MUTABILITY} member to the computed final mutability.
+
+Lines~8 through~10 may add an additional refinement. The purpose of the additional refinement is to aid with assignability checks. Specifically, if the prefix mutability is non-mutable, then it is stored in the {\cd \PREFIXMUTABILITY} member.
+
+\subsubsection{Assignability Check}
+
+The assignability check is performed during typing of assignment (Assign) trees. The assignability-check psuedocode is shown in listing~\ref{lst:psuedo-assignability-check}.
+
+\begin{lstlisting}[float=htbp, caption={Psuedocode for Assignability Checking}, label={lst:psuedo-assignability-check}]
+1.  Let leftTp be the type of the left-hand side of the assignment.
+2.  Find the denotation d of the __PREFIX_MUTABILITY__ member of leftTp.
+3.  If the denotation d exists, and d.info is not a subtype of TypeAlias(mutable), then issue an error.
+\end{lstlisting}
+
+
+\section{Receiver-Mutability Annotations}
+
+
+\section{Mutability Substitutions} \label{sec:mutability-subst}
+
+
+\section{Type Comparer}
+
+
+
+\chapter{Environment Access Restriction: Effective Finality, Type Views, and Purity}
+
+I introduce a method/class annotation that allows the type of a variable to vary depending on where that variable is viewed from. Receiver-mutability annotations allow the mutability of {\cd this} to vary depending on which method {\cd this} is viewed from; type views are a generalization of viewpoint dependence for variables.
+
+Determining purity of a method requires knowing that ...
+
+
+\chapter{Compiler Extension Architecture}
+
+
+\bibliographystyle{plain}
+\renewcommand*{\bibname}{References}
+\bibliography{DotMod2016}
+\end{document}
