@@ -41,6 +41,13 @@
 	morecomment=[s]{/*}{*/},
 	morestring=[b]"
 }
+\lstdefinelanguage{PsuedoCode}{
+	morekeywords={Let,Set,If,Then,Else,Eq,Ne,While,Find,Return},
+	sensitive=false,
+	morecomment=[l]{//},
+	morecomment=[s]{/*}{*/},
+	morestring=[b]"
+}
 \lstset{
 	language={ScalaExamples},
 	basicstyle=\cde,
@@ -77,6 +84,27 @@
 \author{Jonathan Rodriguez\\University of Waterloo}
 \maketitle
 
+
+\subsubsection{This document currently contains the following chapters:}
+\begin{itemize}
+\item Chapter~\ref{chap:dotty-compiler-background}: Background on the Dotty compiler.
+\item Chapter~\ref{chap:dotmod-basic}: DotMod Basic: Simple Reference Immutability.
+\end{itemize}
+
+\subsubsection{Planned chapters:}
+\begin{itemize}
+\item Introduction and Motivation.
+\item Background on Reference Immutability.
+\item Chapter~\ref{chap:as-final-and-type-views}: Effective Finality and Type Views: Toward Purity. (Current status: Implemented.)
+\item Flexible Purity??? (Current status: More research/discussion needed prior to implementation.)
+\item Compiler Extensibility. This chapter treats certain architectural and extensibility concerns in greater detail. (Namely: typing of annotations on symbols (incl. finding the correct typing contexts), TypeOpHooks, others.)
+\item Annotating the Compiler and Standard Library.
+\item Performance. (Basically, we've got to show that DotMod won't make builds so slow that people will want to disable it.)
+\item Related work.
+\item Conclusions.
+\end{itemize}
+
+
 \begin{comment}
 \chapter{Introduction}
 
@@ -104,8 +132,11 @@ However, there is a problem with the creation of type systems orthogonal to the 
 
 
 
-\chapter{Compiler Background}
+\chapter{Compiler Background} \label{chap:dotty-compiler-background}
 
+This chapter highlights some relevant aspects of the Dotty compiler.
+
+\begin{comment}
 The Dotty type system can be confusing, particularly to beginners.
 There is currently little to no documentation about many parts of the compiler,
 so here I will highlight some of the ideas and implementation details of Dotty
@@ -114,15 +145,19 @@ that are relevant to the present work.
 First, I will discuss certain elements of the type system.
 Dotty (roughly) divides types into two categories: type types and term types.
 Key type types and term types are discussed in sections~\ref{sec:type-types} through \ref{sec:term-types}.
-
+\end{comment}
 
 This chapter contains the following sections:
 \begin{itemize}
+\item Section~\ref{sec:dotty-key-concepts}: Key Concepts. These include trees, symbols, denotations, and types.
 \item Section~\ref{sec:type-types}: Dotty Type Types. These are the types that a type can have. They include classes, type bounds, and type aliases.
-\item Section~\ref{sec:value-types}: Dotty Value Types. These are the types that an object or primitive value can have. They include type references, term references, intersection types, union types, and others.
-\item Section~\ref{}:
+\item Section~\ref{sec:value-types}: Dotty Value-Term Types. These are the types that an object or primitive value can have. They include type references, term references, intersection types, union types, and others.
+\item Section~\ref{sec:other-types}: Other Types of Dotty Types. These include method types, wildcard types, import types, and others.
 \end{itemize}
 
+\section{Key Concepts: Trees, Symbols, Denotations, and Types} \label{sec:dotty-key-concepts}
+
+???
 
 \section{Dotty Type Types} \label{sec:type-types}
 
@@ -204,7 +239,7 @@ The TypeAlias class is a subclass of the TypeBounds class, but although type ali
 {\cd AnyRef} is a type alias of {\cd java.lang.Object}. Its owner is the {\cd scala} package, and it is created at compile-time rather than loaded from a class file. As an alias of {\cd Object}, it is a supertype of all reference types.
 
 
-\section{Dotty Value Types} \label{sec:value-types}
+\section{Dotty Value-Term Types} \label{sec:value-types}
 
 Value types can be the types of values (``values'' includes both objects and primitive values).
 
@@ -238,15 +273,15 @@ The prefix type of a TermRef is either a value type or NoPrefix. Common prefix t
 
 \subsubsection{TermRefs are Singleton Types}
 
-A TermRef is also a singleton type. A singleton type is guaranteed to only have a single non-null value. What this means in practice is that if two singleton types are equivalent, they represent {\em the same reference}. The same-reference property is important in path-dependent type comparisons: Two type member selections are guaranteed to be equivalent only if their names are equivalent {\em and} they are selected from the same object.
+A TermRef is also a singleton type. A singleton type is guaranteed to have only a single non-null value. What this means in practice is that if two singleton types are equivalent, they represent {\em the same reference}. The same-reference property is important in path-dependent type comparisons: Two type member selections are guaranteed to be equivalent only if their names are equivalent {\em and} they are selected from the same object.
 
 \subsection{Receiver Types (classes ThisType and SuperType)}
 
-The type of {\cd this} is a ThisType. By itself, {\cd this} refers to the current object of the immediate lexically-enclosing class. It is possible in Scala to nest classes arbitrarily deeply, and so the notation {\cd C.this} exists to refer to the current object of an arbitrary enclosing class~{\cd C}.
+The type of {\cd this} is a ThisType. By itself, {\cd this} refers to the current object of the immediate lexically-enclosing class. It is possible in Scala to nest classes arbitrarily deeply, and so the notation {\cd C.this} exists to refer to the current object of an arbitrary enclosing class~{\cd C}. A SuperType consists of both a ThisType and a TypeRef to some superclass of {\cd C}.
 
-ThisTypes may refer to package classes.
+ThisTypes may refer to package classes. Package classes are synthetically generated during the compilation process. For example, the {\cd scala} package is associated with the package class {\cd scala\$}, and \mbox{\cd scala\$.this} is a reference to the current instance of that package.
 
-ThisTypes are singleton types. Like a TermRef, a ThisType is guaranteed to 
+ThisTypes and SuperTypes are singleton types. Like TermRefs, each ThisType and SuperType is guaranteed to have only a single value.
 
 \subsection{Type Intersections (class AndType)} \label{sec:type-intersection}
 
@@ -298,19 +333,37 @@ The Dotty compiler includes an experimental option to turn off union approximati
 \item What is the precise specification of the union approximation procedure? (Aside from a few in-code comments, I have not been able to find any documented specification of union approximation.)
 \end{itemize}
 
+\subsection{Annotated Types (class AnnotatedType)}
 
-\section{Dotty Non-Value Term Types} \label{sec:nonvalue-term-types}
+%Annotated types syntactially have the form `{\cd T@A}' 
+???
+
+\subsection{Type Parameters (class PolyParam)}
+
+???
+
+\subsection{Type Variables (class TypeVar)}
+
+???
+
+\subsection{Higher-kinded Type Applications (class HKApply)}
+
+???
+
+\subsection{Recursive Types (class RecType)}
+
+???
+
+
+\section{Other Types of Dotty Types} \label{sec:other-types}
+
+???
 
 
 
-\section{Other Types of Dotty Types}
 
 
-
-
-
-
-\chapter{DotMod Basic: Simple Reference Immutability}
+\chapter{DotMod Basic: Simple Reference Immutability} \label{chap:dotmod-basic}
 
 % What it does
 % Operational summary: How does it hook into the compiler?
@@ -346,9 +399,10 @@ There is more information on the specifics of DotMod's architecture in a later c
 
 The sections in this chapter are the following:
 \begin{itemize}
-\item Section~\ref{sec:annotations-to-refinements}: Type Assignments and Type Refinements. This section discusses the conversion of type annotations to type refinements.
-\item Section~\ref{sec:viewpoint-adaptation}: Viewpoint Adaptation. This section discusses the mechanisms used to perform viewpoint adaptation of field selections.
-%\item Section~\ref{}:
+\item Section~\ref{sec:annotations-to-refinements}: Type Annotations and Type Refinements. This section discusses the conversion of type annotations to type refinements.
+\item Section~\ref{sec:viewpoint-adaptation}: Viewpoint Adaptation and Assignability. This section discusses the mechanisms used to perform viewpoint adaptation of field selections.
+\item Section~\ref{sec:receiver-annotations}: Receiver Mutability Annotations. This section discusses how the mutabilities of method receiver references are declared and used.
+\item Section~\ref{sec:type-comparer}: Extending the Type Comparer. This section discusses the extensions DotMod makes to the type comparer.
 \end{itemize}
 
 
@@ -485,7 +539,7 @@ Also absent from Table~\ref{table:can-have-annotations} are method types, which 
 
 
 
-\section{Viewpoint Adaptation} \label{sec:viewpoint-adaptation}
+\section{Viewpoint Adaptation and Assignability} \label{sec:viewpoint-adaptation}
 
 A major feature of reference immutability is the viewpoint adaptation of field reads.
 Conceptually, viewpoint adaptation is not complex:
@@ -508,7 +562,7 @@ Viewpoint adaptation in DotMod may occur whenever the widening of a TermRef occu
 
 Listing~\ref{lst:psuedo-viewpoint-adaptation} shows the psuedocode for the viewpoint adaptation of fields.
 
-\begin{lstlisting}[float=htbp, caption={Psuedocode for Viewpoint Adaptation of Fields}, label={lst:psuedo-viewpoint-adaptation}]
+\begin{lstlisting}[float=htbp, caption={Psuedocode for Viewpoint Adaptation of Fields}, language={PsuedoCode}, emphstyle={\cde\color{Black}}, label={lst:psuedo-viewpoint-adaptation}]
 Given a TermRef with prefix type p and denotation d:
 
 1.  If not canHaveAnnotations(d.info) then return d.info
@@ -543,31 +597,117 @@ Lines~8 through~10 may add an additional refinement. The purpose of the addition
 
 The assignability check is performed during typing of assignment (Assign) trees. The assignability-check psuedocode is shown in listing~\ref{lst:psuedo-assignability-check}.
 
-\begin{lstlisting}[float=htbp, caption={Psuedocode for Assignability Checking}, label={lst:psuedo-assignability-check}]
+\begin{lstlisting}[float=htbp, caption={Psuedocode for Assignability Checking}, language={PsuedoCode}, emphstyle={\cde\color{Black}}, label={lst:psuedo-assignability-check}]
 1.  Let leftTp be the type of the left-hand side of the assignment.
-2.  Find the denotation d of the __PREFIX_MUTABILITY__ member of leftTp.
-3.  If the denotation d exists, and d.info is not a subtype of TypeAlias(mutable), then issue an error.
+2.  Let d be the denotation of the __PREFIX_MUTABILITY__ member of leftTp.
+3.  If d exists and d.info is not a subtype of TypeAlias(mutable) then
+4.      Issue an error.
 \end{lstlisting}
 
+Note that in line~3 {\cd d.info} is compared with a TypeAlias rather than a TypeRef. The member {\cd \PREFIXMUTABILITY} is a type member rather than a term member, so its type is either a TypeBounds or a TypeAlias. Recall from section~\ref{sec:type-types} that the type of a type member is a type type (not a term type). Type types have no direct subtyping relationship with term types, so an attempt to compare a TypeBounds or TypeAlias with a TypeRef always produces {\cd false}.
 
-\section{Receiver-Mutability Annotations}
+\section{Receiver Mutability Annotations} \label{sec:receiver-annotations}
+
+Dotty does not provide a way to declare the type of {\cd this} in a method signature. (Newer versions of Java provide syntax for handling {\cd this} like an ordinary parameter. However, I was reluctant to introduce this kind of feature into Dotty. It was quite unclear at the time what kinds of complexities such a feature would introduce with respect to parsing and method signature handling. As I write this, however, it occurs to me that the type view mechanism I discuss in Chapter~\ref{chap:as-final-and-type-views} may already be a partial solution to the {\cd this}-parameter problem.)
+
+The solution I discuss here allows reference-immutability annotations to be placed on method definitions. DotMod interprets such annotations as applying to the type of {\cd this}. See listing~\ref{lst:rcv-mut-annot-example}, which shows one method with a readonly receiver, and another method with a mutable receiver.
+
+\begin{lstlisting}[float=htbp, caption={Receiver Mutability Annotation Example}, label={lst:rcv-mut-annot-example}]
+class C {
+	@readonly def m1() = {
+		// C.this is readonly here
+	}
+	@mutable def m2() = {
+		// C.this is mutable here
+	}
+	@polyread def m2() = {
+		// C.this has mutability C.this.__MUTABILITY__ here
+	}
+}
+\end{lstlisting}
+
+\subsubsection{The Receiver as a Singleton}
+
+Like TermRefs, ThisTypes are singleton types. As singleton types, they should not be refined (recall table~\ref{table:can-have-annotations}, which shows the types that are eligible for refinement).
+Instead of attempting to refine ThisTypes, the mutability of a ThisType is computed on demand.
+
+\subsubsection{Finding the Mutability of a ThisType}
+
+Finding the mutability of a ThisType involves searching the symbol ownership chain to find the method symbol that has the pertinent annotations. (``Ownership'' here refers to the nesting relationships among symbols, not object ownership.)
+
+\begin{lstlisting}[float=htbp, caption={Psuedocode for Finding ThisType Mutability}, language={PsuedoCode}, emphstyle={\cde\color{Black}}, label={lst:psuedo-thistype-mut}]
+Given a ThisType representing C.this for some class C:
+
+1.  Let M0 be the symbol that owns the current context.
+2.  Find the pair of symbols < M, D > that satisfy the following conditions:
+    (a) M is a method or lazy value.
+    (b) D is C, or is a base class of C.
+    (c) D is an owner of M.
+    (d) M is M0, or is an owner of M0.
+    (e) There is no symbol S where:
+        (e1) D is an owner of S.
+        (e2) S is an owner of M.
+        (e3) S is a class, method, or lazy value.
+3.  If M has an eligible reference-immutability type annotation, then
+4.      Return the mutability represented by first eligible annotation on M
+    else
+5.      Return mutable.
+\end{lstlisting}
+
+The general procedure for finding the mutability of a ThisType is shown in listing~\ref{lst:psuedo-thistype-mut}. Lines~1 and~2 define a search process.
+A ThisType does not always refer to the innermost lexically-enclosing class, so a search is required to find the method that has the required annotations.
+In line~1, the search starts at the current context owner.
+
+Line~2 searches for a particular pair of symbols. The first symbol {\cd M} must be either a method or lazy value -- lazy values are desugared to value/method pairs. In condition {\cd (b)}, the symbol {\cd D} must either be identical to {\cd C}, or a base class of {\cd C}. Symbol {\cd M} must be owned by {\cd D} (condition {\cd (c)}), and {\cd M} must an owner of the current context (condition {\cd (d)}). Condition {\cd (e)} ensures that {\cd D} owns {\cd M} directly -- that is, there are no classes, methods, or lazy values between {\cd M} and {\cd D} on the ownership chain (although there may be non-lazy values between {\cd M} and {\cd D}).
+
+After the correct symbol {\cd M} is found, its annotations are processed, and the mutability of the first eligible annotation is returned (lines~3 and~4).
+If no eligible annotations exist on {\cd M}, then the default is mutable (line~5).
+The result of lines~3 through~5 is {\cd M}'s ``declared receiver mutability.''
+
+\subsubsection{Checking Receiver Compatibility for Method Applications}
+
+???
 
 
-\section{Mutability Substitutions} \label{sec:mutability-subst}
+\subsubsection{Checking Receiver Compatibility for Method Overrides}
+
+Declared receiver mutabilities must be checked during overriding.
+Like parameter types, declared receiver mutabilities are contravariant.
+That is, the declared mutability of the overridden method must be a subtype of the declared mutability of the overriding method.
+
+There is a substitution that must take place prior to the override check. Listing~\ref{lst:thissubst-rcv-ovrr} contains a motivating example: {\cd @polyread} method~{\cd m} is first defined in class~{\cd C} and overridden in class~{\cd D}. The mutability of {\cd this} inside \mbox{{\cd C}'s} {\cd m} is \mbox{\cd C.this.\MUTABILITY}, but the mutability of {\cd this} inside \mbox{{\cd D}'s} {\cd m} is \mbox{\cd D.this.\MUTABILITY}. The override in listing~\ref{lst:thissubst-rcv-ovrr} is allowed because of the knowledge that \mbox{\cd C.this} and \mbox{\cd D.this} refer to the same object; but in general, \mbox{\cd C.this} and \mbox{\cd D.this} are unrelated.
+
+\begin{lstlisting}[float=htbp, caption={This-substitution in Receiver Override Checking}, label={lst:thissubst-rcv-ovrr}]
+class C {
+	@polyread def m() = {
+		// here, mutabilityOf(this) == C.this.__MUTABILITY__
+	}
+}
+class D extends C {
+	@polyread override def m() = {
+		// here, mutabilityOf(this) == D.this.__MUTABILITY__
+	}
+}
+\end{lstlisting}
+
+After quering for declared reciver types, DotMod performs a substitution of \mbox{\cd C.this} for \mbox{\cd D.this}. The receiver of \mbox{{\cd C}'s} {\cd m} is then seen as \mbox{\cd D.this.\MUTABILITY}, which is equivalent to the receiver of \mbox{{\cd D}'s} {\cd m}.
+
+%\section{Polymorphic Mutability and Substitutions} \label{sec:mutability-subst}
+
+%???
+
+\section{Extending the Type Comparer} \label{sec:type-comparer}
+
+???
 
 
-\section{Type Comparer}
-
-
-
-\chapter{Environment Access Restriction: Effective Finality, Type Views, and Purity}
+\chapter{Environment Access Restriction: Effective Finality and Type Views} \label{chap:as-final-and-type-views}
 
 I introduce a method/class annotation that allows the type of a variable to vary depending on where that variable is viewed from. Receiver-mutability annotations allow the mutability of {\cd this} to vary depending on which method {\cd this} is viewed from; type views are a generalization of viewpoint dependence for variables.
 
-Determining purity of a method requires knowing that ...
+???
 
-
-\chapter{Compiler Extension Architecture}
+%\chapter{Compiler Extension Architecture}
 
 
 \bibliographystyle{plain}
